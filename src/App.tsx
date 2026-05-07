@@ -1,0 +1,477 @@
+import { useCallback, useMemo, useRef, useState } from 'react';
+import {
+  BarChart3,
+  ChevronDown,
+  Clock3,
+  Download,
+  Eye,
+  EyeOff,
+  FileCode2,
+  FileDown,
+  FileSpreadsheet,
+  Layers,
+  Moon,
+  Sun,
+  Trash2,
+  Upload,
+  X,
+} from 'lucide-react';
+import { ChartPanel, type ChartPanelHandle } from './components/ChartPanel';
+import { downloadBlob, downloadDataUrl, downloadTextFile } from './lib/download';
+import { buildCleanWorkbookArrayBuffer } from './lib/exportCleanWorkbook';
+import { formatCompact, formatNumber } from './lib/format';
+import { buildIllustratorLayeredSvgs } from './lib/illustratorSvg';
+import { parseWorkbook } from './lib/parseWorkbook';
+import { postProcessCurves } from './lib/postProcess';
+import { readBrowserFile } from './lib/readBrowserFile';
+import { windowSequenceLabel } from './lib/windowSequence';
+import type { CurveSeries, ParsedWorkbook, ProcessingMode, ViewMode } from './types';
+
+const colors = [
+  '#007AFF',
+  '#34C759',
+  '#FF9500',
+  '#AF52DE',
+  '#FF2D55',
+  '#00C7BE',
+  '#5856D6',
+  '#FFCC00',
+  '#5AC8FA',
+  '#FF3B30',
+  '#64D2FF',
+  '#BF5AF2',
+];
+
+const maxWorkbookBytes = 25 * 1024 * 1024;
+const createId = (name: string) => `${name}-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+const isExcelFile = (fileName: string) => fileName.toLowerCase().endsWith('.xlsx');
+
+interface AppProps {
+  initialCurves?: CurveSeries[];
+}
+
+export const App = ({ initialCurves = [] }: AppProps) => {
+  const [curves, setCurves] = useState<CurveSeries[]>(initialCurves);
+  const [viewMode, setViewMode] = useState<ViewMode>('time');
+  const [processingMode, setProcessingMode] = useState<ProcessingMode>('raw');
+  const [theme, setTheme] = useState<'light' | 'dark'>(() =>
+    window.matchMedia?.('(prefers-color-scheme: dark)').matches ? 'dark' : 'light',
+  );
+  const [isImporting, setIsImporting] = useState(false);
+  const [isDragging, setIsDragging] = useState(false);
+  const [isExportMenuOpen, setIsExportMenuOpen] = useState(false);
+  const [message, setMessage] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const chartRef = useRef<ChartPanelHandle | null>(null);
+
+  const visibleCurves = useMemo(() => curves.filter((curve) => curve.visible), [curves]);
+  const processedResult = useMemo(() => postProcessCurves(visibleCurves), [visibleCurves]);
+  const totalPoints = useMemo(
+    () => curves.reduce((sum, curve) => sum + curve.stats.pointCount, 0),
+    [curves],
+  );
+  const maxLuminance = useMemo(
+    () => (curves.length ? Math.max(...curves.map((curve) => curve.stats.maxLuminance)) : 0),
+    [curves],
+  );
+  const processedDroppedPoints = useMemo(
+    () => processedResult.summaries.reduce((sum, summary) => sum + summary.samplesDropped, 0),
+    [processedResult],
+  );
+  const processedWarningCount = useMemo(
+    () => processedResult.diagnostics.filter((diagnostic) => diagnostic.severity === 'warning').length,
+    [processedResult],
+  );
+
+  const addParsedWorkbooks = useCallback((workbooks: ParsedWorkbook[]) => {
+    if (workbooks.length === 0) return;
+
+    setCurves((current) => [
+      ...current,
+      ...workbooks.map((workbook, index) => ({
+        ...workbook,
+        id: createId(workbook.name),
+        color: colors[(current.length + index) % colors.length],
+        visible: true,
+        importedAt: new Date().toISOString(),
+      })),
+    ]);
+  }, []);
+
+  const importBrowserFiles = useCallback(
+    async (files: File[]) => {
+      const parsed: ParsedWorkbook[] = [];
+      const errors: string[] = [];
+
+      setIsImporting(true);
+      for (const file of files) {
+        try {
+          if (!isExcelFile(file.name)) {
+            throw new Error('只支持 .xlsx 文件。');
+          }
+          if (file.size > maxWorkbookBytes) {
+            throw new Error('文件超过 25 MB，已拒绝导入。');
+          }
+          parsed.push(parseWorkbook(await readBrowserFile(file), file.name));
+        } catch (error) {
+          errors.push(`${file.name}: ${(error as Error).message}`);
+        }
+      }
+      setIsImporting(false);
+
+      addParsedWorkbooks(parsed);
+
+      if (parsed.length > 0) {
+        const count = parsed.reduce((sum, item) => sum + item.stats.pointCount, 0);
+        setMessage(`已导入 ${parsed.length} 个文件，${formatCompact(count)} 个采样点。`);
+      }
+      if (errors.length > 0) {
+        setMessage(errors.join(' / '));
+      }
+    },
+    [addParsedWorkbooks],
+  );
+
+  const openFilePicker = () => {
+    fileInputRef.current?.click();
+  };
+
+  const handleFileInput = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const input = event.currentTarget;
+    await importBrowserFiles(Array.from(input.files ?? []));
+    input.value = '';
+  };
+
+  const handleDrop = async (event: React.DragEvent<HTMLElement>) => {
+    event.preventDefault();
+    setIsDragging(false);
+    const files = Array.from(event.dataTransfer.files);
+    if (files.length === 0) return;
+    await importBrowserFiles(files);
+  };
+
+  const handleExportPng = () => {
+    setIsExportMenuOpen(false);
+    const dataUrl = chartRef.current?.exportPng();
+    if (!dataUrl) {
+      setMessage('当前没有可导出的图表。');
+      return;
+    }
+    downloadDataUrl(dataUrl, `luminance-curve-${processingMode}-${viewMode}.png`);
+    setMessage('已开始下载 PNG。');
+  };
+
+  const handleExportSvg = () => {
+    setIsExportMenuOpen(false);
+    const svg = chartRef.current?.exportSvg();
+    if (!svg) {
+      setMessage('当前没有可导出的 SVG 图表。');
+      return;
+    }
+    downloadTextFile(svg, `luminance-curve-${processingMode}-${viewMode}.svg`, 'image/svg+xml;charset=utf-8');
+    setMessage('已开始下载 SVG。');
+  };
+
+  const handleExportLayeredSvg = () => {
+    setIsExportMenuOpen(false);
+    if (processedResult.cleanedPoints.length === 0) {
+      setMessage('后处理没有得到足够稳定的窗口样本，暂时不能导出 AI 分层 SVG。');
+      return;
+    }
+
+    const yExtent = chartRef.current?.getYAxisExtent();
+    const fallbackMax = Math.max(...processedResult.cleanedPoints.map((point) => point.luminanceNits), 1);
+    const yMin = yExtent?.[0] ?? 0;
+    const yMax = yExtent?.[1] ?? fallbackMax;
+    const files = buildIllustratorLayeredSvgs(processedResult, visibleCurves, { yMin, yMax });
+
+    if (files.length === 0) {
+      setMessage('没有可导出的可见曲线。');
+      return;
+    }
+
+    for (const file of files) {
+      downloadTextFile(file.svg, file.fileName, 'image/svg+xml;charset=utf-8');
+    }
+    setMessage(`已开始下载 ${files.length} 个 AI 分层 SVG。`);
+  };
+
+  const handleExportCleanWorkbook = () => {
+    setIsExportMenuOpen(false);
+    if (processedResult.summaries.length === 0) {
+      setMessage('后处理没有得到足够稳定的窗口样本，暂时不能导出干净 Excel。');
+      return;
+    }
+
+    downloadBlob(
+      buildCleanWorkbookArrayBuffer(processedResult),
+      'clean-luminance-data.xlsx',
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    );
+    setMessage('已开始下载干净 Excel。');
+  };
+
+  const toggleCurve = (id: string) => {
+    setCurves((current) =>
+      current.map((curve) => (curve.id === id ? { ...curve, visible: !curve.visible } : curve)),
+    );
+  };
+
+  const removeCurve = (id: string) => {
+    setCurves((current) => current.filter((curve) => curve.id !== id));
+  };
+
+  const clearCurves = () => {
+    setCurves([]);
+    setMessage('已清空所有曲线。');
+  };
+
+  return (
+    <div
+      className={`app-shell ${theme}`}
+      onDragOver={(event) => {
+        event.preventDefault();
+        setIsDragging(true);
+      }}
+      onDragLeave={(event) => {
+        if (event.currentTarget === event.target) setIsDragging(false);
+      }}
+      onDrop={handleDrop}
+    >
+      <input
+        ref={fileInputRef}
+        className="file-input"
+        type="file"
+        accept=".xlsx"
+        multiple
+        onChange={handleFileInput}
+        aria-label="选择 Excel 文件"
+      />
+
+      <header className="topbar">
+        <div className="brand">
+          <div className="brand-mark" aria-hidden="true">
+            <Layers size={20} />
+          </div>
+          <div>
+            <h1>Luminance Curve Web</h1>
+            <p>Local Excel luminance overlay</p>
+          </div>
+        </div>
+
+        <div className="topbar-actions">
+          <button className="button primary" type="button" onClick={openFilePicker} disabled={isImporting}>
+            <Upload size={17} />
+            {isImporting ? '导入中' : '导入 Excel'}
+          </button>
+          <div className="export-menu">
+            <button
+              className="button secondary"
+              type="button"
+              onClick={() => setIsExportMenuOpen((current) => !current)}
+              disabled={visibleCurves.length === 0}
+              aria-expanded={isExportMenuOpen}
+            >
+              <Download size={17} />
+              导出
+              <ChevronDown size={15} />
+            </button>
+            {isExportMenuOpen ? (
+              <div className="export-popover" role="menu">
+                <button type="button" role="menuitem" onClick={handleExportCleanWorkbook} disabled={processedResult.summaries.length === 0}>
+                  <FileSpreadsheet size={16} />
+                  干净 Excel
+                </button>
+                <button type="button" role="menuitem" onClick={handleExportSvg}>
+                  <FileCode2 size={16} />
+                  SVG 图表
+                </button>
+                <button type="button" role="menuitem" onClick={handleExportLayeredSvg} disabled={processedResult.cleanedPoints.length === 0}>
+                  <Layers size={16} />
+                  AI 分层 SVG
+                </button>
+                <button type="button" role="menuitem" onClick={handleExportPng}>
+                  <FileDown size={16} />
+                  PNG 图表
+                </button>
+              </div>
+            ) : null}
+          </div>
+          <button className="icon-button" type="button" onClick={() => setTheme(theme === 'light' ? 'dark' : 'light')} aria-label="切换明暗模式">
+            {theme === 'light' ? <Moon size={18} /> : <Sun size={18} />}
+          </button>
+        </div>
+      </header>
+
+      <main className="workspace">
+        <aside className="sidebar" aria-label="曲线列表">
+          <div className="sidebar-header">
+            <div>
+              <span className="eyebrow">CURVES</span>
+              <h2>{curves.length ? `${curves.length} 条曲线` : '等待导入'}</h2>
+            </div>
+            <button className="icon-button subtle" type="button" onClick={clearCurves} disabled={curves.length === 0} aria-label="清空曲线">
+              <Trash2 size={17} />
+            </button>
+          </div>
+
+          <div className="summary-grid">
+            <div>
+              <span>采样点</span>
+              <strong>{formatCompact(totalPoints)}</strong>
+            </div>
+            <div>
+              <span>峰值</span>
+              <strong>{formatNumber(maxLuminance, 0)}</strong>
+            </div>
+          </div>
+
+          <div className="privacy-note">
+            Excel 文件只在浏览器本地解析，不上传到服务器。
+          </div>
+
+          <div className="curve-list">
+            {curves.length === 0 ? (
+              <div className="empty-list">
+                <FileSpreadsheet size={28} />
+                <p>导入多个 Excel 后，它们会作为独立曲线叠加在同一张图里。</p>
+              </div>
+            ) : (
+              curves.map((curve) => (
+                <article className={`curve-item ${curve.visible ? '' : 'muted'}`} key={curve.id}>
+                  <label className="curve-switch">
+                    <input
+                      type="checkbox"
+                      checked={curve.visible}
+                      onChange={() => toggleCurve(curve.id)}
+                      aria-label={`${curve.visible ? '隐藏' : '显示'} ${curve.name}`}
+                    />
+                    <span className="swatch" style={{ backgroundColor: curve.color }} />
+                    {curve.visible ? <Eye size={15} /> : <EyeOff size={15} />}
+                  </label>
+                  <div className="curve-copy">
+                    <strong title={curve.name}>{curve.name}</strong>
+                    <span>
+                      {formatCompact(curve.stats.pointCount)} 点 · 峰值 {formatNumber(curve.stats.maxLuminance, 1)} nits · {curve.stats.levels.length} 级
+                    </span>
+                  </div>
+                  <button className="icon-button tiny" type="button" onClick={() => removeCurve(curve.id)} aria-label={`移除 ${curve.name}`}>
+                    <X size={15} />
+                  </button>
+                </article>
+              ))
+            )}
+          </div>
+        </aside>
+
+        <section className="chart-section" aria-label="亮度图表">
+          <div className="chart-toolbar">
+            <div className="toolbar-controls">
+              <div className="segmented-control" aria-label="处理模式">
+                <button
+                  className={processingMode === 'raw' ? 'active' : ''}
+                  type="button"
+                  onClick={() => setProcessingMode('raw')}
+                  aria-pressed={processingMode === 'raw'}
+                >
+                  <Clock3 size={16} />
+                  原始
+                </button>
+                <button
+                  className={processingMode === 'processed' ? 'active' : ''}
+                  type="button"
+                  onClick={() => setProcessingMode('processed')}
+                  aria-pressed={processingMode === 'processed'}
+                >
+                  <BarChart3 size={16} />
+                  后处理
+                </button>
+              </div>
+
+              {processingMode === 'raw' ? (
+                <div className="segmented-control" aria-label="视图模式">
+                  <button
+                    className={viewMode === 'time' ? 'active' : ''}
+                    type="button"
+                    onClick={() => setViewMode('time')}
+                    aria-pressed={viewMode === 'time'}
+                  >
+                    <Clock3 size={16} />
+                    时间曲线
+                  </button>
+                  <button
+                    className={viewMode === 'percent' ? 'active' : ''}
+                    type="button"
+                    onClick={() => setViewMode('percent')}
+                    aria-pressed={viewMode === 'percent'}
+                  >
+                    <Layers size={16} />
+                    百分比分布
+                  </button>
+                </div>
+              ) : null}
+            </div>
+            <div className="chart-meta">
+              <span>{visibleCurves.length} 条可见</span>
+              {processingMode === 'processed' ? (
+                <>
+                  <span>{formatCompact(processedResult.cleanedPoints.length)} 个干净采样点</span>
+                  <span>剔除 {formatCompact(processedDroppedPoints)} 点</span>
+                  {processedWarningCount > 0 ? <span className="warning-meta">{processedWarningCount} 个警告</span> : null}
+                </>
+              ) : (
+                <>
+                  <span>{viewMode === 'time' ? 'X: 总时间秒' : 'X: 窗口 / 百分比'}</span>
+                  {viewMode === 'time' ? <span className="window-sequence">窗口顺序：{windowSequenceLabel}</span> : null}
+                </>
+              )}
+            </div>
+          </div>
+
+          <div className="chart-frame">
+            {curves.length === 0 ? (
+              <div className="empty-state">
+                <div className="empty-icon">
+                  <Upload size={30} />
+                </div>
+                <h2>把 Excel 亮度数据拖到这里</h2>
+                <p>也可以点击右上角导入。网页会读取首个工作表的 B-E 列，保留每个原始采样点。</p>
+                <button className="button primary" type="button" onClick={openFilePicker}>
+                  <Upload size={17} />
+                  导入 Excel
+                </button>
+              </div>
+            ) : (
+              <ChartPanel
+                ref={chartRef}
+                curves={curves}
+                viewMode={viewMode}
+                processingMode={processingMode}
+                processedResult={processedResult}
+                theme={theme}
+              />
+            )}
+          </div>
+        </section>
+      </main>
+
+      {isDragging ? (
+        <div className="drop-overlay" aria-hidden="true">
+          <div>
+            <Upload size={34} />
+            <span>松开鼠标导入 .xlsx 文件</span>
+          </div>
+        </div>
+      ) : null}
+
+      {message ? (
+        <div className="toast" role="status">
+          <span>{message}</span>
+          <button type="button" onClick={() => setMessage(null)} aria-label="关闭通知">
+            <X size={14} />
+          </button>
+        </div>
+      ) : null}
+    </div>
+  );
+};
