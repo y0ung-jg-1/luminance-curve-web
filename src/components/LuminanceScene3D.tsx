@@ -38,6 +38,8 @@ const sceneHeight = 4.8;
 
 const easeOutCubic = (value: number) => 1 - (1 - value) ** 3;
 const clamp01 = (value: number) => Math.max(0, Math.min(1, value));
+const mixVector = (start: THREE.Vector3, end: THREE.Vector3, progress: number) =>
+  start.clone().lerp(end, clamp01(progress));
 
 const truncateLabel = (value: string, maxLength: number) =>
   value.length > maxLength ? `${value.slice(0, maxLength - 1)}...` : value;
@@ -193,10 +195,15 @@ export const LuminanceScene3D = forwardRef<LuminanceScene3DHandle, LuminanceScen
       const target = new THREE.Vector3(xCenter * 0.98, sceneHeight * 0.46, Math.max(zCenter * 0.72, 0.35));
       const startTarget = new THREE.Vector3(xCenter * 0.88, sceneHeight * 0.38, Math.max(zCenter * 0.58, 0.25));
       const startPosition = new THREE.Vector3(xCenter * 1.02, sceneHeight * 0.58, axisZ - orbitRadius * 1.18);
-      const finalPosition = new THREE.Vector3(
+      const revealPosition = new THREE.Vector3(
         xCenter + orbitRadius * 0.62,
         sceneHeight * 0.68,
-        axisZ - orbitRadius * 0.82,
+        axisZ - orbitRadius * 0.92,
+      );
+      const finalPosition = new THREE.Vector3(
+        xCenter + orbitRadius * 0.66,
+        sceneHeight * 0.74,
+        axisZ - orbitRadius * 0.74,
       );
 
       controls.target.copy(target);
@@ -451,6 +458,16 @@ export const LuminanceScene3D = forwardRef<LuminanceScene3DHandle, LuminanceScen
       let animationFrame = 0;
       let introComplete = reducedMotion;
       const startedAt = performance.now();
+      const cameraTiltMs = 780;
+      const revealStartMs = 760;
+      const rowDelayMs = 340;
+      const columnDelayMs = 10;
+      const barRiseMs = 620;
+      const finalSettleMs = 520;
+      const lastRowIndex = Math.max(...bars.map((bar) => bar.zIndex), 0);
+      const lastColumnIndex = Math.max(...bars.map((bar) => bar.xIndex), 0);
+      const introDurationMs =
+        revealStartMs + lastRowIndex * rowDelayMs + lastColumnIndex * columnDelayMs + barRiseMs + finalSettleMs;
       if (reducedMotion) {
         for (const bar of bars) {
           bar.mesh.scale.y = bar.targetHeight;
@@ -463,15 +480,17 @@ export const LuminanceScene3D = forwardRef<LuminanceScene3DHandle, LuminanceScen
       const renderFrame = (now: number) => {
         if (!introComplete) {
           const elapsed = now - startedAt;
-          const cameraProgress = easeOutCubic(clamp01(elapsed / 1450));
-          const cameraTarget = startTarget.clone().lerp(target, cameraProgress);
-          camera.position.copy(startPosition.clone().lerp(finalPosition, cameraProgress));
+          const tiltProgress = easeOutCubic(clamp01(elapsed / cameraTiltMs));
+          const settleProgress = easeOutCubic(clamp01((elapsed - revealStartMs) / (introDurationMs - revealStartMs)));
+          const cameraTarget = mixVector(startTarget, target, tiltProgress);
+          const angledPosition = mixVector(startPosition, revealPosition, tiltProgress);
+          camera.position.copy(mixVector(angledPosition, finalPosition, settleProgress));
           camera.lookAt(cameraTarget);
           controls.target.copy(cameraTarget);
 
           for (const bar of bars) {
-            const stagger = bar.xIndex * 36 + bar.zIndex * 24;
-            const progress = easeOutCubic(clamp01((elapsed - stagger) / 760));
+            const stagger = revealStartMs + bar.zIndex * rowDelayMs + bar.xIndex * columnDelayMs;
+            const progress = easeOutCubic(clamp01((elapsed - stagger) / barRiseMs));
             const height = Math.max(bar.targetHeight * progress, 0.001);
             bar.mesh.scale.y = height;
             bar.mesh.position.y = height / 2;
@@ -479,10 +498,12 @@ export const LuminanceScene3D = forwardRef<LuminanceScene3DHandle, LuminanceScen
             bar.cap.visible = progress > 0.04;
           }
 
-          if (cameraProgress >= 1 && elapsed > 1200) {
+          if (elapsed >= introDurationMs) {
             introComplete = true;
             controls.enabled = true;
             controls.target.copy(target);
+            camera.position.copy(finalPosition);
+            camera.lookAt(target);
           }
         }
 
