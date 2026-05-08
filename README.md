@@ -1,17 +1,32 @@
-# Luminance Curve Web
+# Luminance Curve
 
-一个纯网页版本的亮度曲线工具。用户在浏览器里选择或拖拽本地 `.xlsx` 文件，数据只在浏览器本地解析，不会上传到服务器。
+Luminance Curve 是一个亮度曲线分析工具，同一套 React 代码同时支持 Web 静态页面和 Electron 桌面应用。它读取本地 `.xlsx` 工作簿，叠加显示多条原始亮度曲线，并提供后处理、图表导出、AI 分层 SVG 和干净 Excel 导出。
 
 ## 功能
 
-- 手动选择或拖拽多个 `.xlsx`
-- 每个文件作为一条原始采样曲线叠加显示
-- 时间曲线：X = B 列总时间秒，Y = E 列亮度 nits
-- 百分比分布：X = D 列百分比/窗口，Y = E 列亮度 nits
-- Hover 显示文件名、亮度、总时间、周期时间、百分比、原始行号
-- 支持曲线显示/隐藏、移除、清空、浅/深色模式、PNG 下载
+- 导入一个或多个 `.xlsx` 工作簿，支持文件选择和拖拽。
+- 每个文件作为独立曲线叠加显示，可单独隐藏、显示、移除。
+- 原始模式支持两种视图：
+  - 时间曲线：X = B 列总时间秒，Y = E 列亮度 nits。
+  - 百分比分布：X = D 列百分比/窗口，Y = E 列亮度 nits。
+- 后处理模式会按窗口亮度级别整理稳定采样，裁掉边界残留，同时保留短暂亮度尖峰。
+- Hover 曲线点可查看文件名、亮度、总时间、周期时间、百分比和原始行号。
+- 导出 PNG、SVG、Illustrator 友好的 AI 分层 SVG。
+- 导出干净 Excel，包含 Summary、Cleaned Points、Diagnostics 三个工作表。
+- Web 端使用浏览器下载；桌面端使用系统原生打开/保存对话框。
 
-## 本地开发
+## 数据格式
+
+应用读取第一个工作表，并跳过第一行表头。有效数据来自：
+
+- B 列：总时间秒
+- C 列：周期时间秒
+- D 列：百分比 / 窗口亮度级别
+- E 列：亮度 nits
+
+单个工作簿限制为 25 MB。Excel 文件只在本机解析，不上传到服务器。
+
+## Web 开发与部署
 
 ```bash
 npm install
@@ -20,42 +35,16 @@ npm run dev
 
 打开终端显示的本地地址，例如 `http://localhost:5173`。
 
-## 本地验证
+构建静态 Web 版本：
 
 ```bash
-npm run typecheck
-npm run test
 npm run build
+npm run preview
 ```
 
-构建后的静态文件在 `dist/`。
+构建后的静态文件在 `dist/`。普通服务器只需要托管 `dist/`，不需要 Node 常驻进程。
 
-## 部署到普通 Linux 服务器（Nginx）
-
-服务器只需要托管静态文件，不需要 Node 常驻进程。
-
-1. 在本地构建：
-
-```bash
-npm ci
-npm run build
-```
-
-2. 上传 `dist/` 到服务器：
-
-```bash
-scp -r dist/* root@你的服务器IP:/var/www/luminance-curve/
-```
-
-3. 在服务器安装 Nginx：
-
-```bash
-sudo apt update
-sudo apt install -y nginx
-sudo mkdir -p /var/www/luminance-curve
-```
-
-4. 新建 Nginx 站点 `/etc/nginx/sites-available/luminance-curve`：
+Nginx 示例：
 
 ```nginx
 server {
@@ -80,32 +69,49 @@ server {
 }
 ```
 
-5. 启用站点并重载：
-
-```bash
-sudo ln -s /etc/nginx/sites-available/luminance-curve /etc/nginx/sites-enabled/luminance-curve
-sudo nginx -t
-sudo systemctl reload nginx
-```
-
-6. 配 HTTPS：
-
-```bash
-sudo apt install -y certbot python3-certbot-nginx
-sudo certbot --nginx -d your-domain.com
-```
-
-## Docker 部署
+Docker 部署：
 
 ```bash
 docker build -t luminance-curve-web .
 docker run -d --name luminance-curve-web -p 8080:80 luminance-curve-web
 ```
 
-然后访问 `http://服务器IP:8080`。生产环境建议再用 Nginx/Caddy 反代并配置 HTTPS。
+## Desktop 开发与打包
 
-## 数据与安全说明
+桌面端使用 Electron Forge，共用同一个 renderer。
 
-- Excel 数据在浏览器本地解析，不上传服务器。
-- 单个工作簿限制为 25 MB，避免超大文件拖慢浏览器。
-- 依赖 `xlsx` 读取 `.xlsx`，该包目前有上游未修复 npm audit advisory；不要把不可信来源的大文件作为生产数据入口。
+```bash
+npm run desktop:dev
+```
+
+打包当前平台的免安装应用：
+
+```bash
+npm run desktop:package
+```
+
+生成安装包：
+
+```bash
+npm run desktop:make
+```
+
+Electron 输出目录在 `out/`。Windows 会使用 Squirrel maker；macOS 和 Linux maker 需要在对应平台或具备对应系统依赖的环境中运行。
+
+## 验证
+
+```bash
+npm run typecheck
+npm run test
+npm run build
+npm run desktop:package
+```
+
+在 Windows 上如果 `npm run desktop:make` 因平台 maker 或系统依赖失败，先使用 `npm run desktop:package` 产出可运行桌面包，再在目标平台上制作安装包。
+
+## 维护说明
+
+- `src/App.tsx` 是唯一 UI 入口：存在 `window.luminanceAPI` 时走 Electron 原生文件能力，否则走浏览器文件和下载能力。
+- Electron 主进程和 preload 只负责本地文件选择、保存和 IPC 校验，不包含业务解析逻辑。
+- Excel 解析、图表、后处理、导出生成逻辑都在 renderer 共享代码里维护。
+- 依赖 `xlsx` 读取 `.xlsx`。该包目前有上游未修复的 npm audit advisory，不要把不可信来源的大文件作为生产数据入口。

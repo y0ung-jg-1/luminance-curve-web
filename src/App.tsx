@@ -18,14 +18,14 @@ import {
 } from 'lucide-react';
 import { ChartPanel, type ChartPanelHandle } from './components/ChartPanel';
 import { downloadBlob, downloadDataUrl, downloadTextFile } from './lib/download';
-import { buildCleanWorkbookArrayBuffer } from './lib/exportCleanWorkbook';
+import { buildCleanWorkbookArrayBuffer, buildCleanWorkbookBase64 } from './lib/exportCleanWorkbook';
 import { formatCompact, formatNumber } from './lib/format';
 import { buildIllustratorLayeredSvgs } from './lib/illustratorSvg';
-import { parseWorkbook } from './lib/parseWorkbook';
+import { base64ToUint8Array, parseWorkbook } from './lib/parseWorkbook';
 import { postProcessCurves } from './lib/postProcess';
 import { readBrowserFile } from './lib/readBrowserFile';
 import { windowSequenceLabel } from './lib/windowSequence';
-import type { CurveSeries, ParsedWorkbook, ProcessingMode, ViewMode } from './types';
+import type { CurveSeries, ImportedExcelFile, ParsedWorkbook, ProcessingMode, ViewMode } from './types';
 
 const colors = [
   '#007AFF',
@@ -98,6 +98,35 @@ export const App = ({ initialCurves = [] }: AppProps) => {
     ]);
   }, []);
 
+  const importDesktopFiles = useCallback(
+    async (files: ImportedExcelFile[]) => {
+      const parsed: ParsedWorkbook[] = [];
+      const errors: string[] = [];
+
+      for (const file of files) {
+        try {
+          if (!isExcelFile(file.name)) {
+            throw new Error('只支持 .xlsx 文件。');
+          }
+          parsed.push(parseWorkbook(base64ToUint8Array(file.data), file.name, file.path));
+        } catch (error) {
+          errors.push(`${file.name}: ${(error as Error).message}`);
+        }
+      }
+
+      addParsedWorkbooks(parsed);
+
+      if (parsed.length > 0) {
+        const count = parsed.reduce((sum, item) => sum + item.stats.pointCount, 0);
+        setMessage(`已导入 ${parsed.length} 个文件，${formatCompact(count)} 个采样点。`);
+      }
+      if (errors.length > 0) {
+        setMessage(errors.join(' / '));
+      }
+    },
+    [addParsedWorkbooks],
+  );
+
   const importBrowserFiles = useCallback(
     async (files: File[]) => {
       const parsed: ParsedWorkbook[] = [];
@@ -132,7 +161,20 @@ export const App = ({ initialCurves = [] }: AppProps) => {
     [addParsedWorkbooks],
   );
 
-  const openFilePicker = () => {
+  const handleSelectFiles = async () => {
+    if (window.luminanceAPI) {
+      setIsImporting(true);
+      try {
+        const files = await window.luminanceAPI.selectExcelFiles();
+        await importDesktopFiles(files);
+      } catch (error) {
+        setMessage((error as Error).message);
+      } finally {
+        setIsImporting(false);
+      }
+      return;
+    }
+
     fileInputRef.current?.click();
   };
 
@@ -150,29 +192,51 @@ export const App = ({ initialCurves = [] }: AppProps) => {
     await importBrowserFiles(files);
   };
 
-  const handleExportPng = () => {
+  const handleExportPng = async () => {
     setIsExportMenuOpen(false);
     const dataUrl = chartRef.current?.exportPng();
     if (!dataUrl) {
       setMessage('当前没有可导出的图表。');
       return;
     }
+
+    if (window.luminanceAPI) {
+      try {
+        const savedPath = await window.luminanceAPI.saveChartImage(dataUrl);
+        if (savedPath) setMessage(`已导出 PNG：${savedPath}`);
+      } catch (error) {
+        setMessage((error as Error).message);
+      }
+      return;
+    }
+
     downloadDataUrl(dataUrl, `luminance-curve-${processingMode}-${viewMode}.png`);
     setMessage('已开始下载 PNG。');
   };
 
-  const handleExportSvg = () => {
+  const handleExportSvg = async () => {
     setIsExportMenuOpen(false);
     const svg = chartRef.current?.exportSvg();
     if (!svg) {
       setMessage('当前没有可导出的 SVG 图表。');
       return;
     }
+
+    if (window.luminanceAPI) {
+      try {
+        const savedPath = await window.luminanceAPI.saveChartSvg(svg);
+        if (savedPath) setMessage(`已导出 SVG：${savedPath}`);
+      } catch (error) {
+        setMessage((error as Error).message);
+      }
+      return;
+    }
+
     downloadTextFile(svg, `luminance-curve-${processingMode}-${viewMode}.svg`, 'image/svg+xml;charset=utf-8');
     setMessage('已开始下载 SVG。');
   };
 
-  const handleExportLayeredSvg = () => {
+  const handleExportLayeredSvg = async () => {
     setIsExportMenuOpen(false);
     if (processedResult.cleanedPoints.length === 0) {
       setMessage('后处理没有得到足够稳定的窗口样本，暂时不能导出 AI 分层 SVG。');
@@ -190,16 +254,38 @@ export const App = ({ initialCurves = [] }: AppProps) => {
       return;
     }
 
+    if (window.luminanceAPI) {
+      try {
+        const savedPaths = await window.luminanceAPI.saveLayeredSvgs(files);
+        if (savedPaths.length > 0) {
+          setMessage(`已导出 ${savedPaths.length} 个 AI 分层 SVG。`);
+        }
+      } catch (error) {
+        setMessage((error as Error).message);
+      }
+      return;
+    }
+
     for (const file of files) {
       downloadTextFile(file.svg, file.fileName, 'image/svg+xml;charset=utf-8');
     }
     setMessage(`已开始下载 ${files.length} 个 AI 分层 SVG。`);
   };
 
-  const handleExportCleanWorkbook = () => {
+  const handleExportCleanWorkbook = async () => {
     setIsExportMenuOpen(false);
     if (processedResult.summaries.length === 0) {
       setMessage('后处理没有得到足够稳定的窗口样本，暂时不能导出干净 Excel。');
+      return;
+    }
+
+    if (window.luminanceAPI) {
+      try {
+        const savedPath = await window.luminanceAPI.saveCleanWorkbook(buildCleanWorkbookBase64(processedResult));
+        if (savedPath) setMessage(`已导出干净 Excel：${savedPath}`);
+      } catch (error) {
+        setMessage((error as Error).message);
+      }
       return;
     }
 
@@ -254,13 +340,13 @@ export const App = ({ initialCurves = [] }: AppProps) => {
             <Layers size={20} />
           </div>
           <div>
-            <h1>Luminance Curve Web</h1>
+            <h1>Luminance Curve</h1>
             <p>Local Excel luminance overlay</p>
           </div>
         </div>
 
         <div className="topbar-actions">
-          <button className="button primary" type="button" onClick={openFilePicker} disabled={isImporting}>
+          <button className="button primary" type="button" onClick={handleSelectFiles} disabled={isImporting}>
             <Upload size={17} />
             {isImporting ? '导入中' : '导入 Excel'}
           </button>
@@ -327,7 +413,7 @@ export const App = ({ initialCurves = [] }: AppProps) => {
           </div>
 
           <div className="privacy-note">
-            Excel 文件只在浏览器本地解析，不上传到服务器。
+            Excel 文件只在本机解析，不上传到服务器。
           </div>
 
           <div className="curve-list">
@@ -435,8 +521,8 @@ export const App = ({ initialCurves = [] }: AppProps) => {
                   <Upload size={30} />
                 </div>
                 <h2>把 Excel 亮度数据拖到这里</h2>
-                <p>也可以点击右上角导入。网页会读取首个工作表的 B-E 列，保留每个原始采样点。</p>
-                <button className="button primary" type="button" onClick={openFilePicker}>
+                <p>也可以点击右上角导入。应用会读取首个工作表的 B-E 列，保留每个原始采样点。</p>
+                <button className="button primary" type="button" onClick={handleSelectFiles}>
                   <Upload size={17} />
                   导入 Excel
                 </button>

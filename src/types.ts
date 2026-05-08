@@ -2,6 +2,17 @@ export type ViewMode = 'time' | 'percent';
 
 export type ProcessingMode = 'raw' | 'processed';
 
+export interface ImportedExcelFile {
+  name: string;
+  path?: string;
+  data: string;
+}
+
+export interface SvgExportFile {
+  fileName: string;
+  svg: string;
+}
+
 export interface LuminancePoint {
   rowNumber: number;
   elapsedSeconds: number;
@@ -22,6 +33,7 @@ export interface LuminanceStats {
 
 export interface ParsedWorkbook {
   name: string;
+  path?: string;
   sheetName: string;
   points: LuminancePoint[];
   stats: LuminanceStats;
@@ -98,4 +110,18 @@ export interface PostProcessResult {
   cleanedPoints: CleanedLuminancePoint[];
   summaries: WindowSummary[];
   diagnostics: PostProcessDiagnostic[];
+}
+
+export interface LuminanceApi {
+  selectExcelFiles: () => Promise<ImportedExcelFile[]>;
+  saveChartImage: (dataUrl: string) => Promise<string | null>;
+  saveChartSvg: (svg: string) => Promise<string | null>;
+  saveLayeredSvgs: (files: SvgExportFile[]) => Promise<string[]>;
+  saveCleanWorkbook: (base64: string) => Promise<string | null>;
+}
+
+declare global {
+  interface Window {
+    luminanceAPI?: LuminanceApi;
+  }
 }

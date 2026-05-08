@@ -4,7 +4,9 @@ import type { LuminancePoint, LuminanceStats, ParsedWorkbook } from '../types';
 const toNumber = (value: unknown): number | null => {
   if (typeof value === 'number' && Number.isFinite(value)) return value;
   if (typeof value === 'string') {
-    const parsed = Number(value.trim());
+    const normalized = value.trim();
+    if (!normalized) return null;
+    const parsed = Number(normalized);
     return Number.isFinite(parsed) ? parsed : null;
   }
   return null;
@@ -27,7 +29,16 @@ const summarize = (points: LuminancePoint[]): LuminanceStats => {
   };
 };
 
-export const parseWorkbook = (input: ArrayBuffer | Uint8Array, name: string): ParsedWorkbook => {
+export const base64ToUint8Array = (base64: string): Uint8Array => {
+  const binary = atob(base64);
+  const bytes = new Uint8Array(binary.length);
+  for (let index = 0; index < binary.length; index += 1) {
+    bytes[index] = binary.charCodeAt(index);
+  }
+  return bytes;
+};
+
+export const parseWorkbook = (input: ArrayBuffer | Uint8Array, name: string, workbookPath?: string): ParsedWorkbook => {
   const workbook = XLSX.read(input, { type: 'array', cellDates: false });
   const sheetName = workbook.SheetNames[0];
 
@@ -75,6 +86,7 @@ export const parseWorkbook = (input: ArrayBuffer | Uint8Array, name: string): Pa
 
   return {
     name,
+    path: workbookPath,
     sheetName,
     points,
     stats: summarize(points),

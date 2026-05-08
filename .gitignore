@@ -1,4 +1,6 @@
 node_modules/
+out/
+.vite/
 dist/
 coverage/
 .DS_Store
@@ -8,6 +10,7 @@ yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
 Thumbs.db
+*.local
 .env
 .env.*
 !.env.example

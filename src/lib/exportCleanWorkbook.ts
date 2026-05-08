@@ -10,7 +10,7 @@ const setColumnWidths = (sheet: XLSX.WorkSheet, widths: number[]) => {
   sheet['!cols'] = widths.map((wch) => ({ wch }));
 };
 
-export const buildCleanWorkbookArrayBuffer = (result: PostProcessResult): ArrayBuffer => {
+const buildCleanWorkbook = (result: PostProcessResult): XLSX.WorkBook => {
   const workbook = XLSX.utils.book_new();
 
   const summaryRows = result.summaries.map((summary) => ({
@@ -64,5 +64,13 @@ export const buildCleanWorkbookArrayBuffer = (result: PostProcessResult): ArrayB
   setColumnWidths(diagnosticsSheet, [12, 34, 10, 96]);
   XLSX.utils.book_append_sheet(workbook, diagnosticsSheet, 'Diagnostics');
 
-  return XLSX.write(workbook, { bookType: 'xlsx', type: 'array' }) as ArrayBuffer;
+  return workbook;
+};
+
+export const buildCleanWorkbookArrayBuffer = (result: PostProcessResult): ArrayBuffer => {
+  return XLSX.write(buildCleanWorkbook(result), { bookType: 'xlsx', type: 'array' }) as ArrayBuffer;
+};
+
+export const buildCleanWorkbookBase64 = (result: PostProcessResult): string => {
+  return XLSX.write(buildCleanWorkbook(result), { bookType: 'xlsx', type: 'base64' }) as string;
 };
