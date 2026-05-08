@@ -18,6 +18,18 @@ vi.mock('./components/ChartPanel', async () => {
   };
 });
 
+vi.mock('./components/LuminanceScene3D', async () => {
+  const React = await import('react');
+  return {
+    LuminanceScene3D: React.forwardRef((_props: Record<string, never>, ref) => {
+      React.useImperativeHandle(ref, () => ({
+        exportPng: () => 'data:image/png;base64,THREED',
+      }));
+      return <div data-testid="scene3d-panel">3D scene</div>;
+    }),
+  };
+});
+
 vi.mock('./lib/download', () => ({
   downloadBlob: vi.fn(),
   downloadDataUrl: vi.fn(),
@@ -101,6 +113,26 @@ describe('App', () => {
 
     await user.click(screen.getByRole('button', { name: /后处理/i }));
     expect(screen.getByTestId('chart-panel')).toHaveTextContent('processed:percent');
+  });
+
+  it('switches to the 3D scene and routes PNG export to the WebGL snapshot', async () => {
+    const { downloadDataUrl } = await import('./lib/download');
+    const user = userEvent.setup();
+    render(<App />);
+
+    expect(screen.getByRole('button', { name: /3D/i })).toBeDisabled();
+
+    await user.upload(screen.getByLabelText('选择 Excel 文件'), createFile('cleanable.xlsx', true));
+    await screen.findByText('cleanable.xlsx');
+
+    await user.click(screen.getByRole('button', { name: /3D/i }));
+
+    expect(screen.getByTestId('scene3d-panel')).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: '导出' }));
+    await user.click(screen.getByRole('menuitem', { name: /PNG 图表/i }));
+
+    expect(downloadDataUrl).toHaveBeenCalledWith('data:image/png;base64,THREED', 'luminance-curve-3d.png');
   });
 
   it('downloads browser exports for PNG, SVG, AI layered SVG, and clean Excel', async () => {

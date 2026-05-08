@@ -2,6 +2,8 @@ export type ViewMode = 'time' | 'percent';
 
 export type ProcessingMode = 'raw' | 'processed';
 
+export type DisplayMode = '2d' | '3d';
+
 export interface ImportedExcelFile {
   name: string;
   path?: string;
@@ -110,6 +112,32 @@ export interface PostProcessResult {
   cleanedPoints: CleanedLuminancePoint[];
   summaries: WindowSummary[];
   diagnostics: PostProcessDiagnostic[];
+}
+
+export interface LuminanceBar3DDatum {
+  curveId: string;
+  curveName: string;
+  curveColor: string;
+  levelPercent: number;
+  xIndex: number;
+  zIndex: number;
+  meanLuminance: number;
+  medianLuminance: number;
+  minLuminance: number;
+  maxLuminance: number;
+  samplesKept: number;
+}
+
+export interface LuminanceScene3DData {
+  levels: number[];
+  curves: Array<{
+    id: string;
+    name: string;
+    color: string;
+  }>;
+  bars: LuminanceBar3DDatum[];
+  maxMeanLuminance: number;
+  axisMaxLuminance: number;
 }
 
 export interface LuminanceApi {

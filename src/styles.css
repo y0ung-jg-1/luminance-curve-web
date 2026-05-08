@@ -483,10 +483,144 @@ input:focus-visible {
   position: relative;
 }
 
+.visual-layer {
+  inset: 0;
+  min-height: 0;
+  opacity: 0;
+  pointer-events: none;
+  position: absolute;
+  transition: opacity 320ms ease;
+}
+
+.visual-layer.visible {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.visual-layer.hidden {
+  opacity: 0;
+  pointer-events: none;
+}
+
 .chart-canvas {
   height: 100%;
   min-height: 560px;
   width: 100%;
+}
+
+.luminance-scene3d {
+  background:
+    linear-gradient(135deg, rgba(255, 244, 224, 0.72), rgba(229, 239, 249, 0.94) 48%, rgba(222, 235, 241, 0.84)),
+    var(--surface-solid);
+  height: 100%;
+  min-height: 560px;
+  overflow: hidden;
+  position: relative;
+  width: 100%;
+}
+
+.luminance-scene3d.dark {
+  background:
+    linear-gradient(135deg, rgba(15, 18, 24, 0.94), rgba(30, 43, 54, 0.96) 50%, rgba(24, 32, 27, 0.92)),
+    #101318;
+}
+
+.scene3d-viewport,
+.scene3d-canvas {
+  display: block;
+  height: 100%;
+  min-height: 560px;
+  width: 100%;
+}
+
+.scene3d-tooltip {
+  background: rgba(255, 255, 255, 0.92);
+  border: 1px solid rgba(60, 60, 67, 0.14);
+  border-radius: 8px;
+  box-shadow: 0 14px 34px rgba(0, 0, 0, 0.14);
+  color: #1d1d1f;
+  display: grid;
+  gap: 3px;
+  max-width: 260px;
+  padding: 10px 12px;
+  pointer-events: none;
+  position: absolute;
+  z-index: 5;
+}
+
+.dark .scene3d-tooltip {
+  background: rgba(25, 28, 34, 0.9);
+  border-color: rgba(255, 255, 255, 0.14);
+  box-shadow: 0 14px 34px rgba(0, 0, 0, 0.32);
+  color: #f5f5f7;
+}
+
+.scene3d-tooltip strong,
+.scene3d-tooltip span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.scene3d-tooltip strong {
+  font-size: 12px;
+}
+
+.scene3d-tooltip span {
+  color: #6e6e73;
+  font-size: 11px;
+}
+
+.dark .scene3d-tooltip span {
+  color: #c7c7cc;
+}
+
+.scene3d-empty {
+  align-items: center;
+  color: var(--text-muted);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  inset: 0;
+  justify-content: center;
+  position: absolute;
+  text-align: center;
+}
+
+.scene3d-empty strong {
+  color: var(--text);
+  font-size: 18px;
+}
+
+.scene3d-empty span {
+  font-size: 13px;
+}
+
+.scene-transition-snapshot {
+  animation: scene-snapshot-fade 720ms ease forwards;
+  background: var(--surface-solid);
+  inset: 0;
+  pointer-events: none;
+  position: absolute;
+  z-index: 8;
+}
+
+.scene-transition-snapshot img {
+  height: 100%;
+  object-fit: cover;
+  width: 100%;
+}
+
+@keyframes scene-snapshot-fade {
+  0% {
+    opacity: 1;
+    transform: scale(1);
+  }
+
+  100% {
+    opacity: 0;
+    transform: scale(1.018);
+  }
 }
 
 .empty-state {

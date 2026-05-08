@@ -1,6 +1,7 @@
-import { useCallback, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   BarChart3,
+  Box,
   ChevronDown,
   Clock3,
   Download,
@@ -17,6 +18,7 @@ import {
   X,
 } from 'lucide-react';
 import { ChartPanel, type ChartPanelHandle } from './components/ChartPanel';
+import { LuminanceScene3D, type LuminanceScene3DHandle } from './components/LuminanceScene3D';
 import { downloadBlob, downloadDataUrl, downloadTextFile } from './lib/download';
 import { buildCleanWorkbookArrayBuffer, buildCleanWorkbookBase64 } from './lib/exportCleanWorkbook';
 import { formatCompact, formatNumber } from './lib/format';
@@ -25,7 +27,7 @@ import { base64ToUint8Array, parseWorkbook } from './lib/parseWorkbook';
 import { postProcessCurves } from './lib/postProcess';
 import { readBrowserFile } from './lib/readBrowserFile';
 import { windowSequenceLabel } from './lib/windowSequence';
-import type { CurveSeries, ImportedExcelFile, ParsedWorkbook, ProcessingMode, ViewMode } from './types';
+import type { CurveSeries, DisplayMode, ImportedExcelFile, ParsedWorkbook, ProcessingMode, ViewMode } from './types';
 
 const colors = [
   '#007AFF',
@@ -54,6 +56,7 @@ export const App = ({ initialCurves = [] }: AppProps) => {
   const [curves, setCurves] = useState<CurveSeries[]>(initialCurves);
   const [viewMode, setViewMode] = useState<ViewMode>('time');
   const [processingMode, setProcessingMode] = useState<ProcessingMode>('raw');
+  const [displayMode, setDisplayMode] = useState<DisplayMode>('2d');
   const [theme, setTheme] = useState<'light' | 'dark'>(() =>
     window.matchMedia?.('(prefers-color-scheme: dark)').matches ? 'dark' : 'light',
   );
@@ -61,11 +64,14 @@ export const App = ({ initialCurves = [] }: AppProps) => {
   const [isDragging, setIsDragging] = useState(false);
   const [isExportMenuOpen, setIsExportMenuOpen] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
+  const [transitionSnapshot, setTransitionSnapshot] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const chartRef = useRef<ChartPanelHandle | null>(null);
+  const scene3DRef = useRef<LuminanceScene3DHandle | null>(null);
 
   const visibleCurves = useMemo(() => curves.filter((curve) => curve.visible), [curves]);
   const processedResult = useMemo(() => postProcessCurves(visibleCurves), [visibleCurves]);
+  const has3DData = processedResult.summaries.length > 0;
   const totalPoints = useMemo(
     () => curves.reduce((sum, curve) => sum + curve.stats.pointCount, 0),
     [curves],
@@ -82,6 +88,20 @@ export const App = ({ initialCurves = [] }: AppProps) => {
     () => processedResult.diagnostics.filter((diagnostic) => diagnostic.severity === 'warning').length,
     [processedResult],
   );
+
+  useEffect(() => {
+    if (displayMode === '3d' && !has3DData) {
+      setDisplayMode('2d');
+      setTransitionSnapshot(null);
+    }
+  }, [displayMode, has3DData]);
+
+  useEffect(() => {
+    if (!transitionSnapshot) return undefined;
+
+    const timeout = window.setTimeout(() => setTransitionSnapshot(null), 720);
+    return () => window.clearTimeout(timeout);
+  }, [transitionSnapshot]);
 
   const addParsedWorkbooks = useCallback((workbooks: ParsedWorkbook[]) => {
     if (workbooks.length === 0) return;
@@ -194,7 +214,7 @@ export const App = ({ initialCurves = [] }: AppProps) => {
 
   const handleExportPng = async () => {
     setIsExportMenuOpen(false);
-    const dataUrl = chartRef.current?.exportPng();
+    const dataUrl = displayMode === '3d' ? scene3DRef.current?.exportPng() : chartRef.current?.exportPng();
     if (!dataUrl) {
       setMessage('当前没有可导出的图表。');
       return;
@@ -210,7 +230,7 @@ export const App = ({ initialCurves = [] }: AppProps) => {
       return;
     }
 
-    downloadDataUrl(dataUrl, `luminance-curve-${processingMode}-${viewMode}.png`);
+    downloadDataUrl(dataUrl, `luminance-curve-${displayMode === '3d' ? '3d' : `${processingMode}-${viewMode}`}.png`);
     setMessage('已开始下载 PNG。');
   };
 
@@ -309,7 +329,26 @@ export const App = ({ initialCurves = [] }: AppProps) => {
 
   const clearCurves = () => {
     setCurves([]);
+    setDisplayMode('2d');
+    setTransitionSnapshot(null);
     setMessage('已清空所有曲线。');
+  };
+
+  const handleDisplayModeChange = (nextMode: DisplayMode) => {
+    if (nextMode === displayMode) return;
+
+    if (nextMode === '3d') {
+      if (!has3DData) {
+        setMessage('3D 模式需要至少一个后处理稳定窗口。');
+        return;
+      }
+      setTransitionSnapshot(chartRef.current?.exportPng() ?? null);
+      setDisplayMode('3d');
+      return;
+    }
+
+    setTransitionSnapshot(null);
+    setDisplayMode('2d');
   };
 
   return (
@@ -453,6 +492,28 @@ export const App = ({ initialCurves = [] }: AppProps) => {
         <section className="chart-section" aria-label="亮度图表">
           <div className="chart-toolbar">
             <div className="toolbar-controls">
+              <div className="segmented-control" aria-label="显示模式">
+                <button
+                  className={displayMode === '2d' ? 'active' : ''}
+                  type="button"
+                  onClick={() => handleDisplayModeChange('2d')}
+                  aria-pressed={displayMode === '2d'}
+                >
+                  <BarChart3 size={16} />
+                  2D
+                </button>
+                <button
+                  className={displayMode === '3d' ? 'active' : ''}
+                  type="button"
+                  onClick={() => handleDisplayModeChange('3d')}
+                  aria-pressed={displayMode === '3d'}
+                  disabled={!has3DData}
+                >
+                  <Box size={16} />
+                  3D
+                </button>
+              </div>
+
               <div className="segmented-control" aria-label="处理模式">
                 <button
                   className={processingMode === 'raw' ? 'active' : ''}
@@ -499,7 +560,12 @@ export const App = ({ initialCurves = [] }: AppProps) => {
             </div>
             <div className="chart-meta">
               <span>{visibleCurves.length} 条可见</span>
-              {processingMode === 'processed' ? (
+              {displayMode === '3d' ? (
+                <>
+                  <span>{formatCompact(processedResult.summaries.length)} 个窗口均值</span>
+                  <span>峰值 {formatNumber(maxLuminance, 0)} nits</span>
+                </>
+              ) : processingMode === 'processed' ? (
                 <>
                   <span>{formatCompact(processedResult.cleanedPoints.length)} 个干净采样点</span>
                   <span>裁切 {formatCompact(processedDroppedPoints)} 点</span>
@@ -528,14 +594,33 @@ export const App = ({ initialCurves = [] }: AppProps) => {
                 </button>
               </div>
             ) : (
-              <ChartPanel
-                ref={chartRef}
-                curves={curves}
-                viewMode={viewMode}
-                processingMode={processingMode}
-                processedResult={processedResult}
-                theme={theme}
-              />
+              <>
+                <div className={`visual-layer ${displayMode === '2d' ? 'visible' : 'hidden'}`} aria-hidden={displayMode !== '2d'}>
+                  <ChartPanel
+                    ref={chartRef}
+                    curves={curves}
+                    viewMode={viewMode}
+                    processingMode={processingMode}
+                    processedResult={processedResult}
+                    theme={theme}
+                  />
+                </div>
+                {displayMode === '3d' ? (
+                  <div className="visual-layer visible">
+                    <LuminanceScene3D
+                      ref={scene3DRef}
+                      visibleCurves={visibleCurves}
+                      processedResult={processedResult}
+                      theme={theme}
+                    />
+                  </div>
+                ) : null}
+                {transitionSnapshot ? (
+                  <div className="scene-transition-snapshot" aria-hidden="true">
+                    <img src={transitionSnapshot} alt="" />
+                  </div>
+                ) : null}
+              </>
             )}
           </div>
         </section>
