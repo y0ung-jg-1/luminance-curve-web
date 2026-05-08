@@ -26,11 +26,21 @@ interface CurveWindowGroup {
   points: LuminancePoint[];
 }
 
+interface CurveWindowRange extends CurveWindowGroup {
+  startSeconds: number;
+  endSeconds: number;
+  durationSeconds: number;
+}
+
+const leadingTransitionRatio = 0.5;
+
 const levelMatches = (value: number, level: number) => Math.abs(value - level) < 0.000001;
+
+const sortNumbers = (values: number[]) => [...values].sort((a, b) => a - b);
 
 const median = (values: number[]): number => {
   if (values.length === 0) return Number.NaN;
-  const sorted = [...values].sort((a, b) => a - b);
+  const sorted = sortNumbers(values);
   const middle = Math.floor(sorted.length / 2);
   return sorted.length % 2 === 0 ? (sorted[middle - 1] + sorted[middle]) / 2 : sorted[middle];
 };
@@ -44,9 +54,6 @@ const stdev = (values: number[]): number => {
   return Math.sqrt(variance);
 };
 
-const mad = (values: number[], center = median(values)): number =>
-  median(values.map((value) => Math.abs(value - center)));
-
 const findGroup = (curve: CurveSeries, level: number): LuminancePoint[] =>
   curve.points
     .filter((point) => levelMatches(point.levelPercent, level))
@@ -54,7 +61,21 @@ const findGroup = (curve: CurveSeries, level: number): LuminancePoint[] =>
 
 const formatLevel = (level: number) => `${level}%`;
 
-const detectBoundaryNoise = (
+const findReachedWindowStartSeconds = (points: LuminancePoint[]): number => {
+  if (points.length === 0) return 0;
+  const firstSeconds = points[0].cycleSeconds;
+
+  const referencePoints = points.slice(Math.floor(points.length / 2));
+  const referenceMedian = median(referencePoints.map((point) => point.luminanceNits));
+  if (!Number.isFinite(referenceMedian) || referenceMedian <= 0) return firstSeconds;
+
+  const reachedThreshold = referenceMedian * leadingTransitionRatio;
+  const firstReachedPoint = points.find((point) => point.luminanceNits >= reachedThreshold);
+
+  return firstReachedPoint?.cycleSeconds ?? firstSeconds;
+};
+
+const detectTrimmedTailNoise = (
   group: CurveWindowGroup,
   stablePoints: LuminancePoint[],
   options: PostProcessOptions,
@@ -66,11 +87,11 @@ const detectBoundaryNoise = (
     Math.abs(stableMedian) * options.relativeOutlierTolerance,
     options.minimumOutlierDeltaNits,
   );
-  const edgeRows = new Set(stablePoints.map((point) => point.rowNumber));
-  const edgePoints = group.points.filter((point) => !edgeRows.has(point.rowNumber));
-  const noisyEdgeCount = edgePoints.filter((point) => Math.abs(point.luminanceNits - stableMedian) > tolerance).length;
+  const keptRows = new Set(stablePoints.map((point) => point.rowNumber));
+  const boundaryPoints = group.points.filter((point) => !keptRows.has(point.rowNumber));
+  const noisyBoundaryCount = boundaryPoints.filter((point) => Math.abs(point.luminanceNits - stableMedian) > tolerance).length;
 
-  if (noisyEdgeCount === 0) return [];
+  if (noisyBoundaryCount === 0) return [];
 
   return [
     {
@@ -78,40 +99,9 @@ const detectBoundaryNoise = (
       curveId: group.curve.id,
       curveName: group.curve.name,
       windowLevel: stablePoints[0].levelPercent,
-      message: `${group.curve.name} ${formatLevel(stablePoints[0].levelPercent)} clipped ${noisyEdgeCount} edge sample(s) that differ from the stable median.`,
+      message: `${group.curve.name} ${formatLevel(stablePoints[0].levelPercent)} clipped ${noisyBoundaryCount} boundary sample(s) that differ from the kept median.`,
     },
   ];
-};
-
-const removeOutliers = (
-  points: LuminancePoint[],
-  options: PostProcessOptions,
-): { kept: LuminancePoint[]; dropped: LuminancePoint[] } => {
-  if (points.length < options.minSamplesPerWindow) return { kept: points, dropped: [] };
-
-  const kept: LuminancePoint[] = [];
-  const dropped: LuminancePoint[] = [];
-
-  for (let index = 0; index < points.length; index += 1) {
-    const start = Math.max(0, index - options.outlierWindowRadius);
-    const end = Math.min(points.length, index + options.outlierWindowRadius + 1);
-    const localValues = points.slice(start, end).map((point) => point.luminanceNits);
-    const localMedian = median(localValues);
-    const robustSigma = mad(localValues, localMedian) * 1.4826;
-    const threshold = Math.max(
-      robustSigma * options.outlierThreshold,
-      Math.abs(localMedian) * options.relativeOutlierTolerance,
-      options.minimumOutlierDeltaNits,
-    );
-
-    if (Math.abs(points[index].luminanceNits - localMedian) > threshold) {
-      dropped.push(points[index]);
-    } else {
-      kept.push(points[index]);
-    }
-  }
-
-  return { kept, dropped };
 };
 
 const summarizeWindow = (
@@ -119,8 +109,9 @@ const summarizeWindow = (
   level: number,
   keptPoints: LuminancePoint[],
   originalPointCount: number,
-  outliersDropped: number,
-  window: PostProcessWindow,
+  stableStartSeconds: number,
+  stableEndSeconds: number,
+  stableDurationSeconds: number,
 ): WindowSummary => {
   const luminance = keptPoints.map((point) => point.luminanceNits);
 
@@ -128,9 +119,9 @@ const summarizeWindow = (
     curveId: group.curve.id,
     curveName: group.curve.name,
     windowLevel: level,
-    stableStartSeconds: window.stableStartSeconds,
-    stableEndSeconds: window.stableEndSeconds,
-    stableDurationSeconds: window.stableDurationSeconds,
+    stableStartSeconds,
+    stableEndSeconds,
+    stableDurationSeconds,
     meanLuminance: mean(luminance),
     medianLuminance: median(luminance),
     minLuminance: Math.min(...luminance),
@@ -138,7 +129,7 @@ const summarizeWindow = (
     stdevLuminance: stdev(luminance),
     samplesKept: keptPoints.length,
     samplesDropped: originalPointCount - keptPoints.length,
-    outliersDropped,
+    outliersDropped: 0,
   };
 };
 
@@ -186,39 +177,47 @@ export const postProcessCurves = (
 
     if (rangeGroups.length === 0) continue;
 
-    const stableStartSeconds = Math.max(
-      ...rangeGroups.map((group) => Math.min(...group.points.map((point) => point.cycleSeconds)) + options.edgeGuardSeconds),
-    );
-    const stableEndSeconds = Math.min(
-      ...rangeGroups.map((group) => Math.max(...group.points.map((point) => point.cycleSeconds)) - options.edgeGuardSeconds),
-    );
-    const stableDurationSeconds = stableEndSeconds - stableStartSeconds;
+    const ranges: CurveWindowRange[] = rangeGroups.map((group) => {
+      const startSeconds = findReachedWindowStartSeconds(group.points);
+      const endSeconds = Math.max(...group.points.map((point) => point.cycleSeconds)) - options.edgeGuardSeconds;
+
+      return {
+        ...group,
+        startSeconds,
+        endSeconds,
+        durationSeconds: endSeconds - startSeconds,
+      };
+    });
+
+    const stableDurationSeconds = Math.min(...ranges.map((group) => group.durationSeconds));
 
     if (!Number.isFinite(stableDurationSeconds) || stableDurationSeconds < options.minStableSeconds) {
       diagnostics.push({
         severity: 'warning',
         windowLevel: level,
-        message: `${formatLevel(level)} has no shared stable range after the ${options.edgeGuardSeconds}s edge guard.`,
+        message: `${formatLevel(level)} has no shared aligned duration after the ${options.edgeGuardSeconds}s tail guard.`,
       });
       continue;
     }
 
     const window: PostProcessWindow = {
       windowLevel: level,
-      stableStartSeconds,
-      stableEndSeconds,
+      stableStartSeconds: 0,
+      stableEndSeconds: stableDurationSeconds,
       stableDurationSeconds,
       alignedStartSeconds: alignedCursor,
       alignedEndSeconds: alignedCursor + stableDurationSeconds,
     };
     windows.push(window);
 
-    for (const group of rangeGroups) {
+    for (const group of ranges) {
+      const stableStartSeconds = group.startSeconds;
+      const stableEndSeconds = group.startSeconds + stableDurationSeconds;
       const stablePoints = group.points.filter(
         (point) => point.cycleSeconds >= stableStartSeconds && point.cycleSeconds <= stableEndSeconds,
       );
 
-      diagnostics.push(...detectBoundaryNoise(group, stablePoints, options));
+      diagnostics.push(...detectTrimmedTailNoise(group, stablePoints, options));
 
       if (stablePoints.length < options.minSamplesPerWindow) {
         diagnostics.push({
@@ -226,28 +225,24 @@ export const postProcessCurves = (
           curveId: group.curve.id,
           curveName: group.curve.name,
           windowLevel: level,
-          message: `${group.curve.name} ${formatLevel(level)} has only ${stablePoints.length} stable sample(s) after clipping.`,
+          message: `${group.curve.name} ${formatLevel(level)} has only ${stablePoints.length} stable sample(s) after tail alignment.`,
         });
         continue;
       }
 
-      const { kept, dropped } = removeOutliers(stablePoints, options);
-
-      if (dropped.length > 0) {
-        diagnostics.push({
-          severity: 'info',
-          curveId: group.curve.id,
-          curveName: group.curve.name,
-          windowLevel: level,
-          message: `${group.curve.name} ${formatLevel(level)} removed ${dropped.length} short spike sample(s).`,
-        });
-      }
-
-      if (kept.length < options.minSamplesPerWindow) continue;
-
-      summaries.push(summarizeWindow(group, level, kept, group.points.length, dropped.length, window));
+      summaries.push(
+        summarizeWindow(
+          group,
+          level,
+          stablePoints,
+          group.points.length,
+          stableStartSeconds,
+          stableEndSeconds,
+          stableDurationSeconds,
+        ),
+      );
       cleanedPoints.push(
-        ...kept.map((point) => ({
+        ...stablePoints.map((point) => ({
           curveId: group.curve.id,
           curveName: group.curve.name,
           windowLevel: level,

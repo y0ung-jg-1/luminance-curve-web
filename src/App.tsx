@@ -416,7 +416,7 @@ export const App = ({ initialCurves = [] }: AppProps) => {
               {processingMode === 'processed' ? (
                 <>
                   <span>{formatCompact(processedResult.cleanedPoints.length)} 个干净采样点</span>
-                  <span>剔除 {formatCompact(processedDroppedPoints)} 点</span>
+                  <span>裁切 {formatCompact(processedDroppedPoints)} 点</span>
                   {processedWarningCount > 0 ? <span className="warning-meta">{processedWarningCount} 个警告</span> : null}
                 </>
               ) : (

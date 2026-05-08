@@ -391,9 +391,12 @@ const buildProcessedOption = ({
 
       if (points.length === 0) return [];
 
+      const firstPoint = points[0];
+      const lastPoint = points[points.length - 1];
+
       return [
         {
-          value: [window.alignedStartSeconds, 0],
+          value: [firstPoint.alignedSeconds, 0],
           curveName: curve.name,
         },
         ...points.map((point) => ({
@@ -402,7 +405,11 @@ const buildProcessedOption = ({
           curveName: curve.name,
         })),
         {
-          value: [window.alignedEndSeconds, 0],
+          value: [lastPoint.alignedSeconds, 0],
+          curveName: curve.name,
+        },
+        {
+          value: [window.alignedEndSeconds, null],
           curveName: curve.name,
         },
       ];
@@ -416,6 +423,7 @@ const buildProcessedOption = ({
       symbolSize: 0,
       sampling: 'lttb',
       smooth: false,
+      connectNulls: false,
       animationDuration: shouldAnimate ? 220 : 0,
       progressive: shouldAnimate ? 3000 : 0,
       lineStyle: {
