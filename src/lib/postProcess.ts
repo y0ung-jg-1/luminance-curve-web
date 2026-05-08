@@ -18,7 +18,7 @@ export const defaultPostProcessOptions: PostProcessOptions = {
   outlierWindowRadius: 3,
   relativeOutlierTolerance: 0.08,
   minimumOutlierDeltaNits: 5,
-  windowGapSeconds: 1,
+  windowGapSeconds: 2,
 };
 
 interface CurveWindowGroup {
