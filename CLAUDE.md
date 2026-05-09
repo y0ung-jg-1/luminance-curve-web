@@ -31,10 +31,12 @@ Single codebase producing both a static web app and an Electron desktop app. The
 
 ### Data flow
 
-1. **Import**: Browser uses `FileReader` + `xlsx` library; Electron uses IPC (`ipcMain.handle('files:selectExcelFiles')`) which reads files via `fs.readFile` and passes base64 to renderer
-2. **Parse**: `src/lib/parseWorkbook.ts` — reads B-E columns from the first sheet via `XLSX.read`, skips header row, emits `LuminancePoint[]` with `LuminanceStats`
-3. **Display**: `src/App.tsx` holds all state (`curves`, `viewMode`, `processingMode`); `src/components/ChartPanel.tsx` wraps ECharts with two chart builders (`buildRawOption` / `buildProcessedOption`)
-4. **Post-process**: `src/lib/postProcess.ts` — aligns per-window stable samples from `windowSequence` (1%→100%), clips tail guard and boundary noise, aligns windows contiguously on the X axis
+1. **Import**: Two source types, both gated by `window.luminanceAPI`:
+   - **Excel (.xlsx)**: Browser uses `FileReader` + `xlsx`; Electron uses IPC (`ipcMain.handle('files:selectExcelFiles')`) reading via `fs.readFile` and passing base64
+   - **SQLite (.db)**: `src/lib/parseDatabase.ts` opens via `sql.js` WASM; lists `test_executions` rows joined with `products` where `item_id` matches "亮度测试"; the `ExecutionPicker` modal in `src/components/ExecutionPicker.tsx` lets the user multi-select runs (badge shows lit duration computed from `window_time` array max, which is more reliable than the `keep_time` field)
+2. **Parse**: `src/lib/parseWorkbook.ts` reads B-E columns from the first sheet; `parseDatabase.ts` reads `time` / `window_time` / `window_size` / `brightness_data` arrays. Both emit `LuminancePoint[]` + `LuminanceStats`
+3. **Display**: `src/App.tsx` holds state (`curves`, `viewMode`, `processingMode`, `alignmentMode`, `displayMode`); `src/components/ChartPanel.tsx` wraps ECharts (`buildRawOption` / `buildProcessedOption`); `src/components/LuminanceScene3D.tsx` is a Three.js `InstancedMesh` scene driven by `src/lib/luminanceScene3d.ts`
+4. **Post-process**: `src/lib/postProcess.ts` — see *Post-processing* below
 5. **Export**: Four formats — PNG (ECharts `getDataURL`), SVG (off-screen ECharts SVG render), AI layered SVG (`src/lib/illustratorSvg.ts` with Inkscape layer groups), clean Excel (`src/lib/exportCleanWorkbook.ts` with Summary/Cleaned Points/Diagnostics sheets)
 6. **Save**: Web uses DOM anchor download (`src/lib/download.ts`); Electron uses IPC save dialogs (`src/electron/main.ts`)
 
@@ -43,20 +45,36 @@ Single codebase producing both a static web app and an Electron desktop app. The
 All shared types in `src/types.ts`:
 - `LuminancePoint` — raw parsed row
 - `ParsedWorkbook` → `CurveSeries` — extends parsed with id, color, visible
-- `PostProcessResult` — contains `windows`, `cleanedPoints`, `summaries`, `diagnostics`
+- `AlignmentMode` — `'index' | 'normalized'`
+- `PostProcessOptions` — `alignmentMode`, `windowGapSlots`, `normalizedWindowSlots`, `minSamplesPerWindow`, plus diagnostic-tolerance fields
+- `PostProcessResult` — `windows`, `cleanedPoints` (with `windowIndex` / `alignedIndex`, no longer seconds), `summaries`, `diagnostics`
 - `LuminanceApi` — the IPC contract between renderer and Electron main process
 
 ### Processing modes
 
-- **Raw**: Two views — `time` (X=B column elapsed seconds, Y=E column nits) and `percent` (X=D column level, Y=E column nits)
-- **Processed**: One view — aligned window timeline with stable samples per window level, boundary clipping, and gap between windows (`windowGapSeconds: 8`)
+- **Raw**: Two views — `time` (X=elapsed seconds) and `percent` (X=window level)
+- **Processed**: One view, X axis is sample slot index (not seconds). Two alignment sub-modes:
+  - **Index** (`'index'`): per window, find each curve's first sample with `luminanceNits >= 1` (drops only the dark transition frame at window switch), then take `min(N)` head samples across all curves so the start of every window aligns 1-to-1 by sample
+  - **Normalized** (`'normalized'`): per window, each curve's kept samples are stretched onto a fixed slot width (`normalizedWindowSlots`, default 180) so curves with different sample rates overlay head-to-tail. No tail trimming
+- **Auto-suggest**: when imported curves disagree by >20% on per-window sample count, App.tsx auto-switches to `normalized` (only if currently in `processed` + `index`) and shows a centered alert. While the imbalance persists with `index` selected, a pulsing red banner sits above the alignment toggle pointing at 「归一化」
+
+### Post-processing details (`src/lib/postProcess.ts`)
+
+- Single function `postProcessCurves(curves, partialOptions)` runs in two passes: collect validated windows + per-curve kept points, then assign aligned-index positions
+- `windowGapSlots` is **auto-derived** and written back into the returned `options`:
+  - Index mode: `round(mean(samplesKept across all curve+window pairs))`
+  - Normalized mode: equals `normalizedWindowSlots`
+- `alignedCursor` starts at `windowGapSlots` so there's a leading gap before the first window; `xAxis.max` is extended by `windowGapSlots` in `ChartPanel` so the trailing gap is symmetric
+- Rise detection (`findReachedWindowStartIndex`) uses absolute threshold `>= 1 nit`, not a percentage of the stable median — guarantees only the actual dark transition frames get dropped
+- Returned `cleanedPoints` carry both `originalCycleSeconds` (real time) and `alignedIndex`/`windowIndex` (synthetic axis)
 
 ### Shared conventions
 
 - `windowSequence` (`src/lib/windowSequence.ts`) defines the 11 window levels as compile-time array
 - 12-color palette in `src/App.tsx` cycles for new curves
-- 25 MB workbook size limit enforced on both browser and Electron paths
+- 25 MB workbook/db size limit enforced on both browser and Electron paths
 - `ResizeObserver` mocked in test setup (`src/test/setup.ts`); tests use `jsdom` + `@testing-library/react`
+- Processed-view line series intentionally has **no LTTB sampling** because the chart injects synthetic `y=0` baseline sentinels at each window's first/last sample x to draw the vertical wall, and LTTB would silently drop those sentinels
 
 ### NPM dependencies
 

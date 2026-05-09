@@ -487,7 +487,6 @@ const buildProcessedOption = ({
       showSymbol: false,
       symbol: 'circle',
       symbolSize: 8,
-      sampling: 'lttb',
       smooth: false,
       connectNulls: false,
       animationDuration: shouldAnimate ? 220 : 0,
