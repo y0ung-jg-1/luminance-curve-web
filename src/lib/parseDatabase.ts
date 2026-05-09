@@ -13,6 +13,10 @@ export interface DatabaseExecution {
   createdAt: number;
   pointCount: number;
   litDurationSeconds: number;
+  /** Derived: true when "HDR" appears in model / productName / notes. */
+  isHdr: boolean;
+  /** Derived clean mode label from `model` (HDR token + 模式 suffix stripped). */
+  displayMode: string;
 }
 
 export interface DatabaseFileExecutions {
@@ -106,6 +110,20 @@ export const openDatabase = async (buffer: Uint8Array): Promise<Database> => {
   return new sqlJs.Database(buffer);
 };
 
+const HDR_TOKEN = /\bhdr\b/i;
+
+const detectHdr = (...fields: string[]): boolean =>
+  fields.some((field) => HDR_TOKEN.test(field));
+
+const deriveDisplayMode = (model: string): string => {
+  const stripped = model
+    .replace(/\bhdr\b/gi, ' ')
+    .replace(/模式$/u, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+  return stripped || '默认';
+};
+
 const maxFiniteOrZero = (values: number[]): number => {
   let max = 0;
   for (const value of values) {
@@ -140,16 +158,21 @@ export const listLuminanceExecutions = async (
       const idx = (col: string) => columns.indexOf(col);
       for (const row of values) {
         const windowTime = parseFloatArray(row[idx('window_time_data')] ?? null);
+        const productName = stringValue(row[idx('product_name')]);
+        const model = stringValue(row[idx('model')]);
+        const notes = stringValue(row[idx('notes')]);
         executions.push({
           executionId: numberValue(row[idx('execution_id')]),
-          productName: stringValue(row[idx('product_name')]),
+          productName,
           productVersion: stringValue(row[idx('product_version')]),
-          model: stringValue(row[idx('model')]),
+          model,
           status: stringValue(row[idx('status')]),
-          notes: stringValue(row[idx('notes')]),
+          notes,
           createdAt: numberValue(row[idx('created_at')]),
           pointCount: numberValue(row[idx('brightness_size')]),
           litDurationSeconds: maxFiniteOrZero(windowTime),
+          isHdr: detectHdr(model, productName, notes),
+          displayMode: deriveDisplayMode(model),
         });
       }
     }
