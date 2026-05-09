@@ -948,14 +948,25 @@ input:focus-visible {
 
 .picker-row-main {
   display: flex;
+  flex: 1 1 auto;
   flex-direction: column;
-  gap: 2px;
+  gap: 4px;
   min-width: 0;
 }
 
-.picker-row-main strong {
-  font-size: 13px;
-  font-weight: 600;
+.picker-row-headline {
+  align-items: center;
+  display: flex;
+  gap: 8px;
+  min-width: 0;
+}
+
+.picker-row-title {
+  flex: 1 1 auto;
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -964,13 +975,9 @@ input:focus-visible {
 .picker-row-meta {
   color: var(--text-muted);
   font-size: 11px;
-}
-
-.picker-row-tags {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 5px;
-  margin-top: 4px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .picker-tag {
@@ -995,19 +1002,6 @@ input:focus-visible {
   color: var(--text-muted);
 }
 
-.picker-tag.tag-mode {
-  background: rgba(0, 122, 255, 0.14);
-  color: #0067d8;
-  letter-spacing: 0;
-  text-transform: none;
-}
-
-.picker-tag.tag-duration {
-  font-variant-numeric: tabular-nums;
-  letter-spacing: 0;
-  text-transform: none;
-}
-
 .app-shell.dark .picker-tag.tag-hdr {
   background: rgba(191, 90, 242, 0.22);
   color: #d590ff;
@@ -1018,9 +1012,18 @@ input:focus-visible {
   color: var(--text-muted);
 }
 
-.app-shell.dark .picker-tag.tag-mode {
-  background: rgba(89, 162, 255, 0.22);
-  color: #7eb6ff;
+.lit-badge {
+  align-self: center;
+  border-radius: 8px;
+  flex-shrink: 0;
+  font-size: 16px;
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+  letter-spacing: 0.2px;
+  margin-left: auto;
+  padding: 5px 12px;
+  text-align: center;
+  white-space: nowrap;
 }
 
 .lit-tone-short {

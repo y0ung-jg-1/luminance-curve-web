@@ -24,12 +24,15 @@ const formatDateTime = (ms: number): string => {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
 };
 
-const titleOf = (execution: DatabaseExecution, fileName: string): string => {
+const productLabel = (execution: DatabaseExecution, fileName: string): string => {
   const product = execution.productName.trim();
   if (product) return product;
-  const model = execution.model.trim();
-  if (model) return model;
-  return `${fileName} #${execution.executionId}`;
+  return fileName.replace(/\.db$/i, '');
+};
+
+const modeTitle = (execution: DatabaseExecution): string => {
+  const mode = execution.displayMode.trim() || '默认';
+  return /模式$/u.test(mode) ? mode : `${mode}模式`;
 };
 
 const buildKey = (fileName: string, execId: number) => `${fileName}::${execId}`;
@@ -105,14 +108,7 @@ export const ExecutionPicker = ({ open, files, onCancel, onConfirm }: ExecutionP
   const hasSdr = useMemo(() => flat.some((f) => !f.execution.isHdr), [flat]);
 
   useEffect(() => {
-    if (!open) {
-      setSelected(new Set());
-      setModeFilter(new Set());
-      setHdrFilter('all');
-      setDurationFilter(new Set());
-      return;
-    }
-    setSelected(new Set(allKeys));
+    setSelected(new Set());
     setModeFilter(new Set());
     setHdrFilter('all');
     setDurationFilter(new Set());
@@ -332,31 +328,28 @@ export const ExecutionPicker = ({ open, files, onCancel, onConfirm }: ExecutionP
                   {file.items.map(({ execution: exec, key }) => {
                     const checked = selected.has(key);
                     const seconds = Math.round(exec.litDurationSeconds);
+                    const metaParts = [
+                      productLabel(exec, file.fileName),
+                      `#${exec.executionId}`,
+                      exec.status || null,
+                      exec.createdAt ? formatDateTime(exec.createdAt) : null,
+                    ].filter(Boolean) as string[];
                     return (
                       <li key={key}>
                         <label className={`picker-row ${checked ? 'active' : ''}`}>
                           <input type="checkbox" checked={checked} onChange={() => toggle(key)} />
                           <div className="picker-row-main">
-                            <strong>{titleOf(exec, file.fileName)}</strong>
-                            <span className="picker-row-meta">
-                              #{exec.executionId}
-                              {exec.status ? ` · ${exec.status}` : ''}
-                              {exec.createdAt ? ` · ${formatDateTime(exec.createdAt)}` : ''}
-                            </span>
-                            <span className="picker-row-tags">
+                            <div className="picker-row-headline">
                               <span className={`picker-tag ${exec.isHdr ? 'tag-hdr' : 'tag-sdr'}`}>
                                 {exec.isHdr ? 'HDR' : 'SDR'}
                               </span>
-                              {exec.displayMode ? (
-                                <span className="picker-tag tag-mode">{exec.displayMode}</span>
-                              ) : null}
-                              {seconds > 0 ? (
-                                <span className={`picker-tag tag-duration ${litToneClass(seconds)}`}>
-                                  {seconds} s
-                                </span>
-                              ) : null}
-                            </span>
+                              <strong className="picker-row-title">{modeTitle(exec)}</strong>
+                            </div>
+                            <span className="picker-row-meta">{metaParts.join(' · ')}</span>
                           </div>
+                          {seconds > 0 ? (
+                            <span className={`lit-badge ${litToneClass(seconds)}`}>{seconds} s</span>
+                          ) : null}
                         </label>
                       </li>
                     );
