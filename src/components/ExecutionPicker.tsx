@@ -330,8 +330,6 @@ export const ExecutionPicker = ({ open, files, onCancel, onConfirm }: ExecutionP
                     const seconds = Math.round(exec.litDurationSeconds);
                     const metaParts = [
                       productLabel(exec, file.fileName),
-                      `#${exec.executionId}`,
-                      exec.status || null,
                       exec.createdAt ? formatDateTime(exec.createdAt) : null,
                     ].filter(Boolean) as string[];
                     return (
