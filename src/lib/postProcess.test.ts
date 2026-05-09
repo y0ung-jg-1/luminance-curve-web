@@ -54,85 +54,76 @@ const makeWindowWithLuminance = (
 
 describe('postProcessCurves', () => {
   it('aligns slightly offset machines onto the same clean window axis', () => {
-    const result = postProcessCurves(
-      [
-        makeCurve('a', 'Machine A', makeWindow(1, 10, 100)),
-        makeCurve('b', 'Machine B', makeWindow(1, 12.25, 102)),
-      ],
-      { edgeGuardSeconds: 0.5 },
-    );
+    const result = postProcessCurves([
+      makeCurve('a', 'Machine A', makeWindow(1, 10, 100)),
+      makeCurve('b', 'Machine B', makeWindow(1, 12.25, 102)),
+    ]);
 
     expect(result.windows).toHaveLength(1);
-    expect(result.windows[0].alignedStartSeconds).toBe(0);
+    expect(result.windows[0].alignedIndexStart).toBe(result.options.windowGapSlots);
 
     const starts = ['a', 'b'].map((curveId) =>
-      Math.min(...result.cleanedPoints.filter((point) => point.curveId === curveId).map((point) => point.alignedSeconds)),
+      Math.min(...result.cleanedPoints.filter((point) => point.curveId === curveId).map((point) => point.alignedIndex)),
     );
-    expect(starts).toEqual([0, 0]);
+    expect(starts).toEqual([result.options.windowGapSlots, result.options.windowGapSlots]);
   });
 
-  it('aligns each window from its own first sample and trims the tail for common duration', () => {
-    const result = postProcessCurves(
-      [
-        makeCurve('a', 'Machine A', makeWindowFromCycles(1, 10, 100, [0, 0.5, 1, 1.5, 2, 2.5, 3])),
-        makeCurve('b', 'Machine B', makeWindowFromCycles(1, 12, 105, [0.4, 0.9, 1.4, 1.9, 2.4, 2.9, 3.4])),
-      ],
-      { edgeGuardSeconds: 0.5 },
-    );
+  it('keeps the head of every curve and discards extra tail samples to match the shortest', () => {
+    const result = postProcessCurves([
+      makeCurve('a', 'Machine A', makeWindowFromCycles(1, 10, 100, [0, 0.5, 1, 1.5, 2])),
+      makeCurve('b', 'Machine B', makeWindowFromCycles(1, 12, 105, [0.4, 0.9, 1.4, 1.9, 2.4, 2.9, 3.4])),
+    ]);
 
     const machineA = result.cleanedPoints.filter((point) => point.curveId === 'a');
     const machineB = result.cleanedPoints.filter((point) => point.curveId === 'b');
 
+    expect(machineA).toHaveLength(5);
+    expect(machineB).toHaveLength(5);
+
     expect(machineA[0].originalCycleSeconds).toBe(0);
     expect(machineB[0].originalCycleSeconds).toBe(0.4);
-    expect(machineA[0].alignedSeconds).toBe(0);
-    expect(machineB[0].alignedSeconds).toBe(0);
-    expect(machineA.map((point) => point.originalCycleSeconds)).not.toContain(3);
+    expect(machineA[0].alignedIndex).toBe(result.options.windowGapSlots);
+    expect(machineB[0].alignedIndex).toBe(result.options.windowGapSlots);
+
+    expect(machineB.map((point) => point.originalCycleSeconds)).not.toContain(2.9);
     expect(machineB.map((point) => point.originalCycleSeconds)).not.toContain(3.4);
   });
 
-  it('keeps leading samples and clips only the tail guard', () => {
-    const result = postProcessCurves([makeCurve('a', 'Machine A', makeWindow(1, 10, 100))], {
-      edgeGuardSeconds: 0.5,
-    });
+  it('keeps every leading sample once the window is reached', () => {
+    const result = postProcessCurves([makeCurve('a', 'Machine A', makeWindow(1, 10, 100))]);
 
     const sourceRows = result.cleanedPoints.map((point) => point.originalCycleSeconds);
-    expect(sourceRows).not.toContain(3);
     expect(sourceRows).toContain(0);
     expect(sourceRows).toContain(0.5);
     expect(sourceRows).toContain(2.5);
+    expect(sourceRows).toContain(3);
   });
 
   it('skips leading off-level transition samples before aligning the window start', () => {
-    const result = postProcessCurves(
-      [
-        makeCurve(
-          'a',
-          'Machine A',
-          makeWindowWithLuminance(50, 10, [
-            [0, 0],
-            [0.5, 160],
-            [1, 130],
-            [1.5, 100],
-            [2, 100],
-            [2.5, 100],
-            [3, 100],
-          ]),
-        ),
-      ],
-      { edgeGuardSeconds: 0.5 },
-    );
+    const result = postProcessCurves([
+      makeCurve(
+        'a',
+        'Machine A',
+        makeWindowWithLuminance(50, 10, [
+          [0, 0],
+          [0.5, 160],
+          [1, 130],
+          [1.5, 100],
+          [2, 100],
+          [2.5, 100],
+          [3, 100],
+        ]),
+      ),
+    ]);
 
     expect(result.cleanedPoints[0].originalCycleSeconds).toBe(0.5);
-    expect(result.cleanedPoints[0].alignedSeconds).toBe(0);
+    expect(result.cleanedPoints[0].alignedIndex).toBe(result.options.windowGapSlots);
     expect(result.cleanedPoints[0].luminanceNits).toBe(160);
     expect(result.cleanedPoints.map((point) => point.originalCycleSeconds)).not.toContain(0);
   });
 
   it('retains short luminance spikes as source data', () => {
-    const result = postProcessCurves([makeCurve('a', 'Machine A', makeWindow(1, 10, 100, 1.5))], {
-      edgeGuardSeconds: 0.5,
-    });
+    const result = postProcessCurves([makeCurve('a', 'Machine A', makeWindow(1, 10, 100, 1.5))]);
 
     expect(result.cleanedPoints.some((point) => point.luminanceNits === 500)).toBe(true);
     expect(result.summaries[0].outliersDropped).toBe(0);
@@ -147,5 +138,43 @@ describe('postProcessCurves', () => {
 
     expect(result.summaries.length).toBeGreaterThan(0);
     expect(result.diagnostics.some((item) => item.severity === 'warning' && item.windowLevel === 2)).toBe(true);
+  });
+
+  it('normalizes each window so curves with different counts share the same span', () => {
+    const denseCurve = makeCurve(
+      'a',
+      'Dense A',
+      makeWindowFromCycles(1, 10, 100, [0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0]),
+    );
+    const sparseCurve = makeCurve('b', 'Sparse B', makeWindowFromCycles(1, 12, 105, [0, 0.5, 1.0]));
+
+    const result = postProcessCurves([denseCurve, sparseCurve], { alignmentMode: 'normalized' });
+
+    const denseFirst = result.cleanedPoints.find((p) => p.curveId === 'a');
+    const denseLast = [...result.cleanedPoints].reverse().find((p) => p.curveId === 'a');
+    const sparseFirst = result.cleanedPoints.find((p) => p.curveId === 'b');
+    const sparseLast = [...result.cleanedPoints].reverse().find((p) => p.curveId === 'b');
+
+    const dense = result.cleanedPoints.filter((p) => p.curveId === 'a');
+    const sparse = result.cleanedPoints.filter((p) => p.curveId === 'b');
+
+    expect(dense).toHaveLength(11);
+    expect(sparse).toHaveLength(3);
+
+    expect(denseFirst!.windowIndex).toBe(0);
+    expect(sparseFirst!.windowIndex).toBe(0);
+    expect(denseLast!.windowIndex).toBe(result.options.normalizedWindowSlots);
+    expect(sparseLast!.windowIndex).toBe(result.options.normalizedWindowSlots);
+  });
+
+  it('lays out windows contiguously on the aligned index axis with a slot gap between them', () => {
+    const result = postProcessCurves([
+      makeCurve('a', 'Machine A', [...makeWindow(1, 10, 100), ...makeWindow(2, 20, 110)]),
+    ]);
+
+    expect(result.windows).toHaveLength(2);
+    expect(result.windows[0].alignedIndexStart).toBe(result.options.windowGapSlots);
+    const firstCount = result.windows[0].sampleCount;
+    expect(result.windows[1].alignedIndexStart).toBe(result.options.windowGapSlots + firstCount + result.options.windowGapSlots);
   });
 });

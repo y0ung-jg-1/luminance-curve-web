@@ -200,14 +200,17 @@ const buildProcessedTooltip =
     const axisValue = readAxisValue(items);
     if (axisValue === null) return '';
 
-    const headerLabel = `对齐时间: ${formatNumber(axisValue, 2)} 秒`;
+    const isNormalized = processedResult.options.alignmentMode === 'normalized';
+    const headerLabel = isNormalized
+      ? `归一化位置: ${formatNumber(axisValue, 1)}`
+      : `采样位置: #${formatNumber(axisValue, 0)}`;
 
     const rows = visibleCurves
       .map((curve) => {
         const points = processedResult.cleanedPoints
           .filter((p) => p.curveId === curve.id)
-          .sort((a, b) => a.alignedSeconds - b.alignedSeconds);
-        const point = findNearestByX(points, axisValue, (p) => p.alignedSeconds);
+          .sort((a, b) => a.alignedIndex - b.alignedIndex);
+        const point = findNearestByX(points, axisValue, (p) => p.alignedIndex);
         if (!point) return '';
         return `
           <div class="chart-tooltip-row">
@@ -443,13 +446,13 @@ const buildProcessedOption = ({
     processedResult.cleanedPoints.some((point) => point.windowLevel === window.windowLevel && visibleIds.has(point.curveId)),
   );
   const windowBoundaries = Array.from(
-    new Set(visibleWindows.flatMap((window) => [window.alignedStartSeconds, window.alignedEndSeconds])),
+    new Set(visibleWindows.flatMap((window) => [window.alignedIndexStart, window.alignedIndexEnd])),
   ).sort((a, b) => a - b);
   const series = visibleCurves.map((curve, index) => {
     const data = visibleWindows.flatMap((window) => {
       const points = processedResult.cleanedPoints
         .filter((point) => point.curveId === curve.id && point.windowLevel === window.windowLevel)
-        .sort((a, b) => a.alignedSeconds - b.alignedSeconds);
+        .sort((a, b) => a.alignedIndex - b.alignedIndex);
 
       if (points.length === 0) return [];
 
@@ -458,20 +461,20 @@ const buildProcessedOption = ({
 
       return [
         {
-          value: [firstPoint.alignedSeconds, 0],
+          value: [firstPoint.alignedIndex, 0],
           curveName: curve.name,
         },
         ...points.map((point) => ({
-          value: [point.alignedSeconds, point.luminanceNits],
+          value: [point.alignedIndex, point.luminanceNits],
           point,
           curveName: curve.name,
         })),
         {
-          value: [lastPoint.alignedSeconds, 0],
+          value: [lastPoint.alignedIndex, 0],
           curveName: curve.name,
         },
         {
-          value: [window.alignedEndSeconds, null],
+          value: [window.alignedIndexEnd, null],
           curveName: curve.name,
         },
       ];
@@ -519,8 +522,8 @@ const buildProcessedOption = ({
                 formatter: (params: { name?: string }) => params.name ?? '',
               },
               data: visibleWindows.map((window) => [
-                { name: `${window.windowLevel}%`, xAxis: window.alignedStartSeconds },
-                { xAxis: window.alignedEndSeconds },
+                { name: `${window.windowLevel}%`, xAxis: window.alignedIndexStart },
+                { xAxis: window.alignedIndexEnd },
               ]),
             }
           : undefined,
@@ -598,9 +601,12 @@ const buildProcessedOption = ({
     },
     xAxis: {
       type: 'value',
-      name: '对齐窗口时间 (s)',
+      name: processedResult.options.alignmentMode === 'normalized' ? '归一化位置' : '采样序号',
       min: 0,
-      max: visibleWindows.length > 0 ? Math.max(...visibleWindows.map((window) => window.alignedEndSeconds)) : 'dataMax',
+      max:
+        visibleWindows.length > 0
+          ? Math.max(...visibleWindows.map((window) => window.alignedIndexEnd)) + processedResult.options.windowGapSlots
+          : 'dataMax',
       scale: true,
       axisLine: {
         lineStyle: {

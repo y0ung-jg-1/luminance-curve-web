@@ -17,7 +17,7 @@ export const buildLuminanceScene3DData = (
   const visibleIds = new Set(visibleCurves.map((curve) => curve.id));
   const points = processedResult.cleanedPoints
     .filter((point) => visibleIds.has(point.curveId))
-    .sort((a, b) => a.alignedSeconds - b.alignedSeconds || a.curveName.localeCompare(b.curveName));
+    .sort((a, b) => a.alignedIndex - b.alignedIndex || a.curveName.localeCompare(b.curveName));
 
   const pointCurveIds = new Set(points.map((point) => point.curveId));
   const curves = visibleCurves.filter((curve) => pointCurveIds.has(curve.id));
@@ -35,8 +35,8 @@ export const buildLuminanceScene3DData = (
       curveColor: curveColorById.get(point.curveId) ?? '#007aff',
       windowLevel: point.windowLevel,
       rowNumber: point.rowNumber,
-      alignedSeconds: point.alignedSeconds,
-      windowSeconds: point.windowSeconds,
+      alignedIndex: point.alignedIndex,
+      windowIndex: point.windowIndex,
       luminanceNits: point.luminanceNits,
       xIndex,
       zIndex: curveIndexById.get(point.curveId) ?? 0,
@@ -44,13 +44,13 @@ export const buildLuminanceScene3DData = (
   });
 
   const maxLuminance = bars.length > 0 ? Math.max(...bars.map((bar) => bar.luminanceNits)) : 0;
-  const maxAlignedSeconds = bars.length > 0 ? Math.max(...bars.map((bar) => bar.alignedSeconds)) : 0;
+  const maxAlignedIndex = bars.length > 0 ? Math.max(...bars.map((bar) => bar.alignedIndex)) : 0;
   const windows = processedResult.windows
     .filter((window) => points.some((point) => point.windowLevel === window.windowLevel))
     .map((window) => ({
       windowLevel: window.windowLevel,
-      alignedStartSeconds: window.alignedStartSeconds,
-      alignedEndSeconds: window.alignedEndSeconds,
+      alignedIndexStart: window.alignedIndexStart,
+      alignedIndexEnd: window.alignedIndexEnd,
     }));
 
   return {
@@ -61,7 +61,7 @@ export const buildLuminanceScene3DData = (
     })),
     windows,
     bars,
-    maxAlignedSeconds,
+    maxAlignedIndex,
     maxLuminance,
     axisMaxLuminance: niceAxisMax(maxLuminance),
   };

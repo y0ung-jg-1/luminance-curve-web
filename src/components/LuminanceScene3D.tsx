@@ -51,16 +51,16 @@ const mixVector = (start: THREE.Vector3, end: THREE.Vector3, progress: number) =
 const truncateLabel = (value: string, maxLength: number) =>
   value.length > maxLength ? `${value.slice(0, maxLength - 1)}...` : value;
 
-const getTimeBarWidth = (bars: LuminanceBar3DDatum[], xSpan: number, maxSeconds: number) => {
-  const uniqueTimes = Array.from(new Set(bars.map((bar) => Number(bar.alignedSeconds.toFixed(4))))).sort((a, b) => a - b);
-  if (uniqueTimes.length < 2 || maxSeconds <= 0) {
+const getTimeBarWidth = (bars: LuminanceBar3DDatum[], xSpan: number, maxIndex: number) => {
+  const uniqueIndices = Array.from(new Set(bars.map((bar) => bar.alignedIndex))).sort((a, b) => a - b);
+  if (uniqueIndices.length < 2 || maxIndex <= 0) {
     return Math.max(minTimeBarWidth, Math.min(maxTimeBarWidth, xSpan * 0.08));
   }
 
-  const minStepSeconds = uniqueTimes
+  const minStep = uniqueIndices
     .slice(1)
-    .reduce((minimum, value, index) => Math.min(minimum, value - uniqueTimes[index]), Number.POSITIVE_INFINITY);
-  const worldStep = (minStepSeconds / maxSeconds) * xSpan;
+    .reduce((minimum, value, index) => Math.min(minimum, value - uniqueIndices[index]), Number.POSITIVE_INFINITY);
+  const worldStep = (minStep / maxIndex) * xSpan;
 
   return Math.max(minTimeBarWidth, Math.min(maxTimeBarWidth, worldStep * 0.68));
 };
@@ -203,7 +203,7 @@ export const LuminanceScene3D = forwardRef<LuminanceScene3DHandle, LuminanceScen
 
       const xOrigin = 0;
       const zOrigin = 0;
-      const timeSpan = Math.max(sceneData.maxAlignedSeconds, 0.001);
+      const indexSpan = Math.max(sceneData.maxAlignedIndex, 0.001);
       const xLast = Math.max(5.8, Math.min(16, sceneData.windows.length * 1.12 + 1.8));
       const zLast = zOrigin + Math.max(sceneData.curves.length - 1, 0) * zSpacing;
       const xCenter = xLast / 2;
@@ -213,8 +213,8 @@ export const LuminanceScene3D = forwardRef<LuminanceScene3DHandle, LuminanceScen
       const orbitRadius = Math.max(sceneWidth, sceneDepth, 6);
       const axisX = xLast + 0.28;
       const axisZ = zOrigin - 0.66;
-      const xForSeconds = (seconds: number) => xLast - (Math.max(0, Math.min(timeSpan, seconds)) / timeSpan) * xLast;
-      const timeBarWidth = getTimeBarWidth(sceneData.bars, xLast, timeSpan);
+      const xForIndex = (value: number) => xLast - (Math.max(0, Math.min(indexSpan, value)) / indexSpan) * xLast;
+      const timeBarWidth = getTimeBarWidth(sceneData.bars, xLast, indexSpan);
       const target = new THREE.Vector3(xCenter * 0.98, sceneHeight * 0.46, Math.max(zCenter * 0.72, 0.35));
       const frame1Target = new THREE.Vector3(xCenter * 0.96, sceneHeight * 0.43, zOrigin + 0.04);
       const frame1Position = new THREE.Vector3(xCenter * 0.96, sceneHeight * 0.44, axisZ - orbitRadius * 1.08);
@@ -348,7 +348,7 @@ export const LuminanceScene3D = forwardRef<LuminanceScene3DHandle, LuminanceScen
 
       for (let index = 0; index < barCount; index += 1) {
         const datum = sceneData.bars[index];
-        const x = xForSeconds(datum.alignedSeconds);
+        const x = xForIndex(datum.alignedIndex);
         const z = zOrigin + datum.zIndex * zSpacing;
         const targetHeight = Math.max(datum.luminanceNits * yScale, 0.035);
         const curveColor = new THREE.Color(datum.curveColor);
@@ -378,11 +378,11 @@ export const LuminanceScene3D = forwardRef<LuminanceScene3DHandle, LuminanceScen
         transparent: true,
         opacity: theme === 'dark' ? 0.24 : 0.18,
       });
-      const boundarySeconds = Array.from(
-        new Set(sceneData.windows.flatMap((window) => [window.alignedStartSeconds, window.alignedEndSeconds])),
+      const boundaryIndices = Array.from(
+        new Set(sceneData.windows.flatMap((window) => [window.alignedIndexStart, window.alignedIndexEnd])),
       ).sort((a, b) => a - b);
-      for (const seconds of boundarySeconds) {
-        const x = xForSeconds(seconds);
+      for (const indexValue of boundaryIndices) {
+        const x = xForIndex(indexValue);
         const boundary = new THREE.Line(
           new THREE.BufferGeometry().setFromPoints([
             new THREE.Vector3(x, 0.036, axisZ + 0.16),
@@ -394,7 +394,7 @@ export const LuminanceScene3D = forwardRef<LuminanceScene3DHandle, LuminanceScen
       }
 
       for (const window of sceneData.windows) {
-        const x = xForSeconds((window.alignedStartSeconds + window.alignedEndSeconds) / 2);
+        const x = xForIndex((window.alignedIndexStart + window.alignedIndexEnd) / 2);
         const label = makeTextSprite(`${window.windowLevel}%`, { color: labelColor, fontSize: 27, width: 120, height: 48 });
         label.position.set(x, 0.34, axisZ - 0.52);
         label.scale.set(0.46, 0.18, 1);
@@ -635,7 +635,7 @@ export const LuminanceScene3D = forwardRef<LuminanceScene3DHandle, LuminanceScen
               progress = frontRowProgress;
             } else {
               const timeRatio =
-                sceneData.maxAlignedSeconds > 0 ? clamp01(bar.datum.alignedSeconds / sceneData.maxAlignedSeconds) : 0;
+                sceneData.maxAlignedIndex > 0 ? clamp01(bar.datum.alignedIndex / sceneData.maxAlignedIndex) : 0;
               const stagger = revealStartMs + (bar.zIndex - 1) * rowDelayMs + timeRatio * timeSweepMs;
               progress = easeOutCubic(clamp01((elapsed - stagger) / barRiseMs));
             }
@@ -696,8 +696,8 @@ export const LuminanceScene3D = forwardRef<LuminanceScene3DHandle, LuminanceScen
           <div className="scene3d-tooltip" style={{ left: tooltip.x, top: tooltip.y }}>
             <strong>{tooltip.datum.curveName}</strong>
             <span>{formatNumber(tooltip.datum.windowLevel, 2)}% window</span>
-            <span>时间 {formatNumber(tooltip.datum.alignedSeconds, 3)}s</span>
-            <span>窗口内 {formatNumber(tooltip.datum.windowSeconds, 3)}s</span>
+            <span>对齐位置 #{formatNumber(tooltip.datum.alignedIndex, 0)}</span>
+            <span>窗口内 #{formatNumber(tooltip.datum.windowIndex, 0)}</span>
             <span>亮度 {formatNumber(tooltip.datum.luminanceNits, 2)} nits</span>
             <span>行 {tooltip.datum.rowNumber}</span>
           </div>

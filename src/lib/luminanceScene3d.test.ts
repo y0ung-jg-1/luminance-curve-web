@@ -25,7 +25,7 @@ const createPoint = (
   curveId: string,
   curveName: string,
   windowLevel: number,
-  alignedSeconds: number,
+  alignedIndex: number,
   luminanceNits: number,
   rowNumber = 10,
 ): CleanedLuminancePoint => ({
@@ -33,33 +33,29 @@ const createPoint = (
   curveName,
   windowLevel,
   rowNumber,
-  originalElapsedSeconds: alignedSeconds + 100,
-  originalCycleSeconds: alignedSeconds,
-  windowSeconds: alignedSeconds,
-  alignedSeconds,
+  originalElapsedSeconds: alignedIndex + 100,
+  originalCycleSeconds: alignedIndex,
+  windowIndex: alignedIndex,
+  alignedIndex,
   luminanceNits,
 });
 
-const createWindow = (windowLevel: number, alignedStartSeconds: number, alignedEndSeconds: number): PostProcessWindow => ({
+const createWindow = (windowLevel: number, alignedIndexStart: number, alignedIndexEnd: number): PostProcessWindow => ({
   windowLevel,
-  stableStartSeconds: 0,
-  stableEndSeconds: alignedEndSeconds - alignedStartSeconds,
-  stableDurationSeconds: alignedEndSeconds - alignedStartSeconds,
-  alignedStartSeconds,
-  alignedEndSeconds,
+  sampleCount: alignedIndexEnd - alignedIndexStart,
+  alignedIndexStart,
+  alignedIndexEnd,
 });
 
 const createResult = (cleanedPoints: CleanedLuminancePoint[], windows: PostProcessWindow[] = []): PostProcessResult => ({
   generatedAt: '2026-01-01T00:00:00.000Z',
   options: {
-    edgeGuardSeconds: 0.5,
-    minStableSeconds: 0.25,
+    alignmentMode: 'index',
     minSamplesPerWindow: 3,
-    outlierThreshold: 3.5,
-    outlierWindowRadius: 3,
     relativeOutlierTolerance: 0.08,
     minimumOutlierDeltaNits: 5,
-    windowGapSeconds: 8,
+    windowGapSlots: 8,
+    normalizedWindowSlots: 200,
   },
   windows,
   cleanedPoints,
@@ -68,28 +64,28 @@ const createResult = (cleanedPoints: CleanedLuminancePoint[], windows: PostProce
 });
 
 describe('buildLuminanceScene3DData', () => {
-  it('maps visible cleaned samples into a 3D time bar grid', () => {
+  it('maps visible cleaned samples into a 3D index bar grid', () => {
     const curves = [createCurve('a', 'A', '#111111'), createCurve('b', 'B', '#222222')];
     const data = buildLuminanceScene3DData(
       curves,
       createResult(
         [
           createPoint('a', 'A', 1, 0, 100, 11),
-          createPoint('a', 'A', 1, 0.5, 120, 12),
+          createPoint('a', 'A', 1, 1, 120, 12),
           createPoint('b', 'B', 1, 0, 150, 21),
         ],
-        [createWindow(1, 0, 1)],
+        [createWindow(1, 0, 2)],
       ),
     );
 
     expect(data.curves.map((curve) => curve.name)).toEqual(['A', 'B']);
-    expect(data.windows).toEqual([{ windowLevel: 1, alignedStartSeconds: 0, alignedEndSeconds: 1 }]);
+    expect(data.windows).toEqual([{ windowLevel: 1, alignedIndexStart: 0, alignedIndexEnd: 2 }]);
     expect(data.bars).toEqual([
-      expect.objectContaining({ curveId: 'a', windowLevel: 1, alignedSeconds: 0, luminanceNits: 100, xIndex: 0, zIndex: 0 }),
-      expect.objectContaining({ curveId: 'b', windowLevel: 1, alignedSeconds: 0, luminanceNits: 150, xIndex: 0, zIndex: 1 }),
-      expect.objectContaining({ curveId: 'a', windowLevel: 1, alignedSeconds: 0.5, luminanceNits: 120, xIndex: 1, zIndex: 0 }),
+      expect.objectContaining({ curveId: 'a', windowLevel: 1, alignedIndex: 0, luminanceNits: 100, xIndex: 0, zIndex: 0 }),
+      expect.objectContaining({ curveId: 'b', windowLevel: 1, alignedIndex: 0, luminanceNits: 150, xIndex: 0, zIndex: 1 }),
+      expect.objectContaining({ curveId: 'a', windowLevel: 1, alignedIndex: 1, luminanceNits: 120, xIndex: 1, zIndex: 0 }),
     ]);
-    expect(data.maxAlignedSeconds).toBe(0.5);
+    expect(data.maxAlignedIndex).toBe(1);
     expect(data.maxLuminance).toBe(150);
   });
 
@@ -107,7 +103,7 @@ describe('buildLuminanceScene3DData', () => {
   it('keeps a stable nice luminance axis maximum from measured samples', () => {
     const data = buildLuminanceScene3DData(
       [createCurve('a', 'A')],
-      createResult([createPoint('a', 'A', 1, 0, 118), createPoint('a', 'A', 1, 0.5, 137)]),
+      createResult([createPoint('a', 'A', 1, 0, 118), createPoint('a', 'A', 1, 1, 137)]),
     );
 
     expect(data.maxLuminance).toBe(137);
@@ -120,7 +116,7 @@ describe('buildLuminanceScene3DData', () => {
     expect(data.curves).toEqual([]);
     expect(data.windows).toEqual([]);
     expect(data.bars).toEqual([]);
-    expect(data.maxAlignedSeconds).toBe(0);
+    expect(data.maxAlignedIndex).toBe(0);
     expect(data.maxLuminance).toBe(0);
     expect(data.axisMaxLuminance).toBe(1);
   });

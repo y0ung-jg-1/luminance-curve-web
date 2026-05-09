@@ -48,15 +48,15 @@ export interface CurveSeries extends ParsedWorkbook {
   importedAt: string;
 }
 
+export type AlignmentMode = 'index' | 'normalized';
+
 export interface PostProcessOptions {
-  edgeGuardSeconds: number;
-  minStableSeconds: number;
+  alignmentMode: AlignmentMode;
   minSamplesPerWindow: number;
-  outlierThreshold: number;
-  outlierWindowRadius: number;
   relativeOutlierTolerance: number;
   minimumOutlierDeltaNits: number;
-  windowGapSeconds: number;
+  windowGapSlots: number;
+  normalizedWindowSlots: number;
 }
 
 export interface CleanedLuminancePoint {
@@ -66,8 +66,8 @@ export interface CleanedLuminancePoint {
   rowNumber: number;
   originalElapsedSeconds: number;
   originalCycleSeconds: number;
-  windowSeconds: number;
-  alignedSeconds: number;
+  windowIndex: number;
+  alignedIndex: number;
   luminanceNits: number;
 }
 
@@ -75,9 +75,9 @@ export interface WindowSummary {
   curveId: string;
   curveName: string;
   windowLevel: number;
-  stableStartSeconds: number;
-  stableEndSeconds: number;
-  stableDurationSeconds: number;
+  firstCycleSeconds: number;
+  lastCycleSeconds: number;
+  spanSeconds: number;
   meanLuminance: number;
   medianLuminance: number;
   minLuminance: number;
@@ -98,11 +98,9 @@ export interface PostProcessDiagnostic {
 
 export interface PostProcessWindow {
   windowLevel: number;
-  stableStartSeconds: number;
-  stableEndSeconds: number;
-  stableDurationSeconds: number;
-  alignedStartSeconds: number;
-  alignedEndSeconds: number;
+  sampleCount: number;
+  alignedIndexStart: number;
+  alignedIndexEnd: number;
 }
 
 export interface PostProcessResult {
@@ -120,8 +118,8 @@ export interface LuminanceBar3DDatum {
   curveColor: string;
   windowLevel: number;
   rowNumber: number;
-  alignedSeconds: number;
-  windowSeconds: number;
+  alignedIndex: number;
+  windowIndex: number;
   luminanceNits: number;
   xIndex: number;
   zIndex: number;
@@ -129,8 +127,8 @@ export interface LuminanceBar3DDatum {
 
 export interface LuminanceScene3DWindowBand {
   windowLevel: number;
-  alignedStartSeconds: number;
-  alignedEndSeconds: number;
+  alignedIndexStart: number;
+  alignedIndexEnd: number;
 }
 
 export interface LuminanceScene3DData {
@@ -141,7 +139,7 @@ export interface LuminanceScene3DData {
   }>;
   windows: LuminanceScene3DWindowBand[];
   bars: LuminanceBar3DDatum[];
-  maxAlignedSeconds: number;
+  maxAlignedIndex: number;
   maxLuminance: number;
   axisMaxLuminance: number;
 }

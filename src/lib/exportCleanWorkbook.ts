@@ -22,28 +22,28 @@ const buildCleanWorkbook = (result: PostProcessResult): XLSX.WorkBook => {
     'Max nits': round(summary.maxLuminance, 3),
     'Stdev nits': round(summary.stdevLuminance, 3),
     'Samples kept': summary.samplesKept,
-    'Boundary samples clipped': summary.samplesDropped,
+    'Tail samples dropped': summary.samplesDropped,
     'Short spikes preserved': 'Yes',
-    'Stable start s': round(summary.stableStartSeconds, 6),
-    'Stable end s': round(summary.stableEndSeconds, 6),
-    'Stable duration s': round(summary.stableDurationSeconds, 6),
+    'First cycle s': round(summary.firstCycleSeconds, 6),
+    'Last cycle s': round(summary.lastCycleSeconds, 6),
+    'Span s': round(summary.spanSeconds, 6),
   }));
   const summarySheet = XLSX.utils.json_to_sheet(summaryRows);
-  setColumnWidths(summarySheet, [34, 10, 14, 12, 11, 11, 12, 13, 15, 16, 15, 13, 17]);
+  setColumnWidths(summarySheet, [34, 10, 14, 12, 11, 11, 12, 13, 16, 16, 14, 14, 12]);
   XLSX.utils.book_append_sheet(workbook, summarySheet, 'Summary');
 
   const pointRows = result.cleanedPoints.map((point) => ({
     Machine: point.curveName,
     'Window %': point.windowLevel,
-    'Aligned seconds': round(point.alignedSeconds, 6),
-    'Window seconds': round(point.windowSeconds, 6),
+    'Aligned index': point.alignedIndex,
+    'Window index': point.windowIndex,
     'Original elapsed seconds': round(point.originalElapsedSeconds, 6),
     'Original cycle seconds': round(point.originalCycleSeconds, 6),
     'Luminance nits': round(point.luminanceNits, 6),
     'Source row': point.rowNumber,
   }));
   const pointsSheet = XLSX.utils.json_to_sheet(pointRows);
-  setColumnWidths(pointsSheet, [34, 10, 16, 16, 24, 22, 16, 12]);
+  setColumnWidths(pointsSheet, [34, 10, 14, 14, 24, 22, 16, 12]);
   XLSX.utils.book_append_sheet(workbook, pointsSheet, 'Cleaned Points');
 
   const diagnosticRows = result.diagnostics.map((diagnostic) => ({
@@ -57,7 +57,7 @@ const buildCleanWorkbook = (result: PostProcessResult): XLSX.WorkBook => {
       Severity: 'info',
       Machine: '',
       'Window %': '',
-      Message: `Generated at ${result.generatedAt}. Boundary transition clipping is enabled, tail guard ${result.options.edgeGuardSeconds}s, min stable ${result.options.minStableSeconds}s. Short luminance spikes are preserved.`,
+      Message: `Generated at ${result.generatedAt}. Curves are aligned by sample index from the first reached sample of each window; min ${result.options.minSamplesPerWindow} samples per window, ${result.options.windowGapSlots}-slot gap between windows. Short luminance spikes are preserved.`,
     },
     ...diagnosticRows,
   ]);

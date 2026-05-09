@@ -34,7 +34,15 @@ import { base64ToUint8Array, parseWorkbook } from './lib/parseWorkbook';
 import { postProcessCurves } from './lib/postProcess';
 import { readBrowserFile } from './lib/readBrowserFile';
 import { windowSequenceLabel } from './lib/windowSequence';
-import type { CurveSeries, DisplayMode, ImportedExcelFile, ParsedWorkbook, ProcessingMode, ViewMode } from './types';
+import type {
+  AlignmentMode,
+  CurveSeries,
+  DisplayMode,
+  ImportedExcelFile,
+  ParsedWorkbook,
+  ProcessingMode,
+  ViewMode,
+} from './types';
 
 const colors = [
   '#007AFF',
@@ -69,6 +77,7 @@ export const App = ({ initialCurves = [] }: AppProps) => {
   const [curves, setCurves] = useState<CurveSeries[]>(initialCurves);
   const [viewMode, setViewMode] = useState<ViewMode>('time');
   const [processingMode, setProcessingMode] = useState<ProcessingMode>('raw');
+  const [alignmentMode, setAlignmentMode] = useState<AlignmentMode>('index');
   const [displayMode, setDisplayMode] = useState<DisplayMode>('2d');
   const [theme, setTheme] = useState<'light' | 'dark'>(() =>
     window.matchMedia?.('(prefers-color-scheme: dark)').matches ? 'dark' : 'light',
@@ -84,7 +93,10 @@ export const App = ({ initialCurves = [] }: AppProps) => {
   const scene3DRef = useRef<LuminanceScene3DHandle | null>(null);
 
   const visibleCurves = useMemo(() => curves.filter((curve) => curve.visible), [curves]);
-  const processedResult = useMemo(() => postProcessCurves(visibleCurves), [visibleCurves]);
+  const processedResult = useMemo(
+    () => postProcessCurves(visibleCurves, { alignmentMode }),
+    [visibleCurves, alignmentMode],
+  );
   const has3DData = processedResult.cleanedPoints.length > 0;
   const totalPoints = useMemo(
     () => curves.reduce((sum, curve) => sum + curve.stats.pointCount, 0),
@@ -727,7 +739,26 @@ export const App = ({ initialCurves = [] }: AppProps) => {
                     百分比分布
                   </button>
                 </div>
-              ) : null}
+              ) : (
+                <div className="segmented-control" aria-label="对齐方式">
+                  <button
+                    className={alignmentMode === 'index' ? 'active' : ''}
+                    type="button"
+                    onClick={() => setAlignmentMode('index')}
+                    aria-pressed={alignmentMode === 'index'}
+                  >
+                    采样序号
+                  </button>
+                  <button
+                    className={alignmentMode === 'normalized' ? 'active' : ''}
+                    type="button"
+                    onClick={() => setAlignmentMode('normalized')}
+                    aria-pressed={alignmentMode === 'normalized'}
+                  >
+                    归一化
+                  </button>
+                </div>
+              )}
             </div>
             <div className="chart-meta">
               <span>{visibleCurves.length} 条可见</span>

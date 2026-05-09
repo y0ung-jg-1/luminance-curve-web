@@ -37,7 +37,7 @@ const makeCurve = (id: string, name: string, levels: number[]): CurveSeries => {
 describe('buildIllustratorLayeredSvgs', () => {
   it('creates separate movable window layers with waveform paths', () => {
     const curve = makeCurve('a', 'Display A', [1, 2]);
-    const result = postProcessCurves([curve], { edgeGuardSeconds: 0.5 });
+    const result = postProcessCurves([curve]);
     const files = buildIllustratorLayeredSvgs(result, [curve], { yMin: 0, yMax: 250 });
 
     expect(files).toHaveLength(1);
@@ -49,7 +49,7 @@ describe('buildIllustratorLayeredSvgs', () => {
   it('exports overlaid curves as separate SVG files', () => {
     const first = makeCurve('a', 'Display A', [1]);
     const second = makeCurve('b', 'Display B', [1]);
-    const result = postProcessCurves([first, second], { edgeGuardSeconds: 0.5 });
+    const result = postProcessCurves([first, second]);
     const files = buildIllustratorLayeredSvgs(result, [first, second], { yMin: 0, yMax: 250 });
 
     expect(files.map((file) => file.fileName)).toEqual(['Display A-AI-layered.svg', 'Display B-AI-layered.svg']);

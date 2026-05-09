@@ -58,15 +58,15 @@ const buildBarPath = ({
   toY,
 }: {
   window: PostProcessWindow;
-  points: Array<{ windowSeconds: number; luminanceNits: number }>;
+  points: Array<{ windowIndex: number; luminanceNits: number }>;
   barLeft: number;
   barWidth: number;
   baselineY: number;
   toY: (value: number) => number;
 }): { fillPath: string; topPath: string } => {
-  const duration = Math.max(window.stableDurationSeconds, 0.000001);
+  const span = Math.max(window.sampleCount - 1, 1);
   const topPoints = points.map((point) => ({
-    x: barLeft + (Math.max(0, Math.min(duration, point.windowSeconds)) / duration) * barWidth,
+    x: barLeft + (Math.max(0, Math.min(span, point.windowIndex)) / span) * barWidth,
     y: toY(point.luminanceNits),
   }));
 
@@ -126,7 +126,7 @@ export const buildIllustratorLayeredSvgs = (
 
       const points = result.cleanedPoints
         .filter((point) => point.curveId === curve.id && point.windowLevel === level)
-        .sort((a, b) => a.windowSeconds - b.windowSeconds);
+        .sort((a, b) => a.windowIndex - b.windowIndex);
       if (points.length === 0) return [];
 
       const barLeft = margin.left + index * (barWidth + gap);
