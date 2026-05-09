@@ -854,6 +854,56 @@ input:focus-visible {
   font-size: 11px;
 }
 
+.lit-badge {
+  align-self: center;
+  border-radius: 999px;
+  flex-shrink: 0;
+  font-size: 18px;
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+  letter-spacing: 0.3px;
+  margin-left: auto;
+  min-width: 56px;
+  padding: 6px 14px;
+  text-align: center;
+  white-space: nowrap;
+}
+
+.lit-tone-short {
+  background: rgba(48, 176, 199, 0.18);
+  color: #1a8da3;
+}
+
+.lit-tone-mid {
+  background: rgba(255, 159, 10, 0.2);
+  color: #c87800;
+}
+
+.lit-tone-long {
+  background: rgba(255, 69, 90, 0.2);
+  color: #d6395a;
+}
+
+.lit-tone-other {
+  background: rgba(120, 120, 128, 0.2);
+  color: var(--text-muted);
+}
+
+.app-shell.dark .lit-tone-short {
+  background: rgba(94, 200, 216, 0.22);
+  color: #5ec8d8;
+}
+
+.app-shell.dark .lit-tone-mid {
+  background: rgba(255, 177, 85, 0.22);
+  color: #ffb155;
+}
+
+.app-shell.dark .lit-tone-long {
+  background: rgba(255, 112, 136, 0.24);
+  color: #ff7088;
+}
+
 .picker-footer {
   border-top: 1px solid var(--border);
   display: flex;

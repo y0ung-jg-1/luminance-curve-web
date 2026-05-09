@@ -33,6 +33,14 @@ const labelOf = (execution: DatabaseExecution, fileName: string): string => {
 
 const buildKey = (fileName: string, execId: number) => `${fileName}::${execId}`;
 
+const litToneClass = (seconds: number): string => {
+  const rounded = Math.round(seconds);
+  if (rounded === 8) return 'lit-tone-short';
+  if (rounded === 20) return 'lit-tone-mid';
+  if (rounded === 40) return 'lit-tone-long';
+  return 'lit-tone-other';
+};
+
 export const ExecutionPicker = ({ open, files, onCancel, onConfirm }: ExecutionPickerProps) => {
   const [selected, setSelected] = useState<Set<string>>(() => new Set());
 
@@ -130,6 +138,11 @@ export const ExecutionPicker = ({ open, files, onCancel, onConfirm }: ExecutionP
                               {exec.createdAt ? ` · ${formatDateTime(exec.createdAt)}` : ''}
                             </span>
                           </div>
+                          {exec.litDurationSeconds > 0 ? (
+                            <span className={`lit-badge ${litToneClass(exec.litDurationSeconds)}`}>
+                              {Math.round(exec.litDurationSeconds)}s
+                            </span>
+                          ) : null}
                         </label>
                       </li>
                     );

@@ -12,6 +12,7 @@ export interface DatabaseExecution {
   notes: string;
   createdAt: number;
   pointCount: number;
+  litDurationSeconds: number;
 }
 
 export interface DatabaseFileExecutions {
@@ -52,7 +53,11 @@ const executionListQuery = `
     (SELECT length(td.data)
        FROM test_datas td
        WHERE td.execution_id = e.execution_id
-         AND td.param_name = 'brightness_data') AS brightness_size
+         AND td.param_name = 'brightness_data') AS brightness_size,
+    (SELECT td.data
+       FROM test_datas td
+       WHERE td.execution_id = e.execution_id
+         AND td.param_name = 'window_time') AS window_time_data
   FROM test_executions e
   LEFT JOIN products p ON e.product_id = p.product_id
   WHERE e.item_id = ?
@@ -101,6 +106,14 @@ export const openDatabase = async (buffer: Uint8Array): Promise<Database> => {
   return new sqlJs.Database(buffer);
 };
 
+const maxFiniteOrZero = (values: number[]): number => {
+  let max = 0;
+  for (const value of values) {
+    if (value > max) max = value;
+  }
+  return max;
+};
+
 const findLuminanceItemIds = (db: Database): number[] => {
   const result = db.exec(luminanceItemQuery);
   if (result.length === 0) return [];
@@ -126,6 +139,7 @@ export const listLuminanceExecutions = async (
       const { columns, values } = result[0];
       const idx = (col: string) => columns.indexOf(col);
       for (const row of values) {
+        const windowTime = parseFloatArray(row[idx('window_time_data')] ?? null);
         executions.push({
           executionId: numberValue(row[idx('execution_id')]),
           productName: stringValue(row[idx('product_name')]),
@@ -135,6 +149,7 @@ export const listLuminanceExecutions = async (
           notes: stringValue(row[idx('notes')]),
           createdAt: numberValue(row[idx('created_at')]),
           pointCount: numberValue(row[idx('brightness_size')]),
+          litDurationSeconds: maxFiniteOrZero(windowTime),
         });
       }
     }

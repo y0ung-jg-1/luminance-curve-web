@@ -88,6 +88,7 @@ describe('parseDatabase', () => {
     expect(result.executions.map((e) => e.executionId)).toEqual([102, 103]);
     expect(result.executions[0].productName).toBe('85XR90 二代');
     expect(result.executions[0].model).toBe('HDR 标准模式');
+    expect(result.executions[0].litDurationSeconds).toBeCloseTo(0.5);
   });
 
   it('builds a curve whose points preserve array order', async () => {
