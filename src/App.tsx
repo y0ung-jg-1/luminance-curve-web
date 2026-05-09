@@ -127,6 +127,7 @@ export const App = ({ initialCurves = [] }: AppProps) => {
   const [message, setMessage] = useState<string | null>(null);
   const [pickerState, setPickerState] = useState<PickerState | null>(null);
   const [alignmentAlert, setAlignmentAlert] = useState<SampleImbalance | null>(null);
+  const [renameState, setRenameState] = useState<{ id: string; draft: string } | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const dbInputRef = useRef<HTMLInputElement | null>(null);
   const chartRef = useRef<ChartPanelHandle | null>(null);
@@ -555,6 +556,24 @@ export const App = ({ initialCurves = [] }: AppProps) => {
     setCurves((current) => current.filter((curve) => curve.id !== id));
   };
 
+  const startRename = (curve: CurveSeries) => {
+    setRenameState({ id: curve.id, draft: curve.name });
+  };
+
+  const cancelRename = () => {
+    setRenameState(null);
+  };
+
+  const commitRename = () => {
+    if (!renameState) return;
+    const trimmed = renameState.draft.trim();
+    setRenameState(null);
+    if (!trimmed) return;
+    setCurves((current) =>
+      current.map((curve) => (curve.id === renameState.id ? { ...curve, name: trimmed } : curve)),
+    );
+  };
+
   const clearCurves = () => {
     setCurves([]);
     setDisplayMode('2d');
@@ -700,29 +719,74 @@ export const App = ({ initialCurves = [] }: AppProps) => {
                 <p>导入多个 Excel 后，它们会作为独立曲线叠加在同一张图里。</p>
               </div>
             ) : (
-              curves.map((curve) => (
-                <article className={`curve-item ${curve.visible ? '' : 'muted'}`} key={curve.id}>
-                  <label className="curve-switch">
-                    <input
-                      type="checkbox"
-                      checked={curve.visible}
-                      onChange={() => toggleCurve(curve.id)}
-                      aria-label={`${curve.visible ? '隐藏' : '显示'} ${curve.name}`}
-                    />
-                    <span className="swatch" style={{ backgroundColor: curve.color }} />
-                    {curve.visible ? <Eye size={15} /> : <EyeOff size={15} />}
-                  </label>
-                  <div className="curve-copy">
-                    <strong title={curve.name}>{curve.name}</strong>
-                    <span>
-                      {formatCompact(curve.stats.pointCount)} 点 · 峰值 {formatNumber(curve.stats.maxLuminance, 1)} nits · {curve.stats.levels.length} 级
-                    </span>
-                  </div>
-                  <button className="icon-button tiny" type="button" onClick={() => removeCurve(curve.id)} aria-label={`移除 ${curve.name}`}>
-                    <X size={15} />
-                  </button>
-                </article>
-              ))
+              curves.map((curve) => {
+                const isEditing = renameState?.id === curve.id;
+                return (
+                  <article className={`curve-item ${curve.visible ? '' : 'muted'}`} key={curve.id}>
+                    <label className="curve-switch">
+                      <input
+                        type="checkbox"
+                        checked={curve.visible}
+                        onChange={() => toggleCurve(curve.id)}
+                        aria-label={`${curve.visible ? '隐藏' : '显示'} ${curve.name}`}
+                      />
+                      <span className="swatch" style={{ backgroundColor: curve.color }} />
+                      {curve.visible ? <Eye size={15} /> : <EyeOff size={15} />}
+                    </label>
+                    <div className="curve-copy">
+                      {isEditing ? (
+                        <input
+                          className="curve-name-input"
+                          value={renameState.draft}
+                          autoFocus
+                          aria-label="重命名曲线"
+                          onChange={(event) =>
+                            setRenameState({ id: curve.id, draft: event.target.value })
+                          }
+                          onBlur={commitRename}
+                          onKeyDown={(event) => {
+                            if (event.key === 'Enter') {
+                              event.preventDefault();
+                              commitRename();
+                            } else if (event.key === 'Escape') {
+                              event.preventDefault();
+                              cancelRename();
+                            }
+                          }}
+                          onFocus={(event) => event.currentTarget.select()}
+                        />
+                      ) : (
+                        <strong
+                          className="curve-name"
+                          title={`${curve.name}（点击重命名）`}
+                          role="button"
+                          tabIndex={0}
+                          onClick={() => startRename(curve)}
+                          onKeyDown={(event) => {
+                            if (event.key === 'Enter' || event.key === ' ') {
+                              event.preventDefault();
+                              startRename(curve);
+                            }
+                          }}
+                        >
+                          {curve.name}
+                        </strong>
+                      )}
+                      <span>
+                        {formatCompact(curve.stats.pointCount)} 点 · 峰值 {formatNumber(curve.stats.maxLuminance, 1)} nits · {curve.stats.levels.length} 级
+                      </span>
+                    </div>
+                    <button
+                      className="icon-button tiny"
+                      type="button"
+                      onClick={() => removeCurve(curve.id)}
+                      aria-label={`移除 ${curve.name}`}
+                    >
+                      <X size={15} />
+                    </button>
+                  </article>
+                );
+              })
             )}
           </div>
         </aside>

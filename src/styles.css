@@ -421,6 +421,33 @@ input:focus-visible {
   line-height: 1.35;
 }
 
+.curve-copy .curve-name {
+  border-radius: 4px;
+  cursor: text;
+  padding: 1px 4px;
+  margin: -1px -4px;
+  transition: background 120ms ease;
+}
+
+.curve-copy .curve-name:hover {
+  background: var(--surface-muted);
+}
+
+.curve-name-input {
+  background: var(--surface-solid);
+  border: 1px solid var(--primary);
+  border-radius: 5px;
+  color: var(--text);
+  display: block;
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1.35;
+  outline: none;
+  padding: 2px 6px;
+  width: 100%;
+}
+
 .curve-copy span {
   color: var(--text-muted);
   font-size: 12px;
