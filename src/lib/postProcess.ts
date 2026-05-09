@@ -15,7 +15,7 @@ export const defaultPostProcessOptions: PostProcessOptions = {
   minSamplesPerWindow: 3,
   relativeOutlierTolerance: 0.08,
   minimumOutlierDeltaNits: 5,
-  windowGapSlots: 153,
+  windowGapSlots: 0,
   normalizedWindowSlots: 180,
 };
 
@@ -29,7 +29,7 @@ interface CurveWindowSlice extends CurveWindowGroup {
   availableCount: number;
 }
 
-const leadingTransitionRatio = 0.15;
+const leadingTransitionMaxNits = 1;
 
 const levelMatches = (value: number, level: number) => Math.abs(value - level) < 0.000001;
 
@@ -61,12 +61,7 @@ const formatLevel = (level: number) => `${level}%`;
 const findReachedWindowStartIndex = (points: LuminancePoint[]): number => {
   if (points.length === 0) return 0;
 
-  const referencePoints = points.slice(Math.floor(points.length / 2));
-  const referenceMedian = median(referencePoints.map((point) => point.luminanceNits));
-  if (!Number.isFinite(referenceMedian) || referenceMedian <= 0) return 0;
-
-  const reachedThreshold = referenceMedian * leadingTransitionRatio;
-  const reachedIndex = points.findIndex((point) => point.luminanceNits >= reachedThreshold);
+  const reachedIndex = points.findIndex((point) => point.luminanceNits >= leadingTransitionMaxNits);
 
   return reachedIndex >= 0 ? reachedIndex : 0;
 };
@@ -128,6 +123,15 @@ const summarizeWindow = (
   };
 };
 
+interface ValidatedWindow {
+  level: number;
+  windowSpan: number;
+  perCurve: Array<{
+    slice: CurveWindowSlice;
+    keptPoints: LuminancePoint[];
+  }>;
+}
+
 export const postProcessCurves = (
   curves: CurveSeries[],
   partialOptions: Partial<PostProcessOptions> = {},
@@ -137,7 +141,10 @@ export const postProcessCurves = (
   const windows: PostProcessWindow[] = [];
   const cleanedPoints: CleanedLuminancePoint[] = [];
   const summaries: WindowSummary[] = [];
-  let alignedCursor = options.windowGapSlots;
+  const isNormalized = options.alignmentMode === 'normalized';
+
+  const validatedWindows: ValidatedWindow[] = [];
+  const keptCounts: number[] = [];
 
   for (const level of windowSequence) {
     const groups: CurveWindowGroup[] = curves
@@ -179,7 +186,6 @@ export const postProcessCurves = (
 
     if (slices.length === 0) continue;
 
-    const isNormalized = options.alignmentMode === 'normalized';
     const indexKeepCount = Math.min(...slices.map((slice) => slice.availableCount));
 
     if (!isNormalized && (!Number.isFinite(indexKeepCount) || indexKeepCount < options.minSamplesPerWindow)) {
@@ -192,6 +198,26 @@ export const postProcessCurves = (
     }
 
     const windowSpan = isNormalized ? options.normalizedWindowSlots : indexKeepCount;
+    const perCurve = slices.map((slice) => {
+      const keptPoints = isNormalized
+        ? slice.points.slice(slice.riseIndex)
+        : slice.points.slice(slice.riseIndex, slice.riseIndex + indexKeepCount);
+      keptCounts.push(keptPoints.length);
+      return { slice, keptPoints };
+    });
+
+    validatedWindows.push({ level, windowSpan, perCurve });
+  }
+
+  const computedGap = isNormalized
+    ? options.normalizedWindowSlots
+    : keptCounts.length > 0
+      ? Math.round(keptCounts.reduce((sum, value) => sum + value, 0) / keptCounts.length)
+      : 0;
+  options.windowGapSlots = computedGap;
+
+  let alignedCursor = computedGap;
+  for (const { level, windowSpan, perCurve } of validatedWindows) {
     const window: PostProcessWindow = {
       windowLevel: level,
       sampleCount: windowSpan,
@@ -200,14 +226,10 @@ export const postProcessCurves = (
     };
     windows.push(window);
 
-    for (const slice of slices) {
-      const keptPoints = isNormalized
-        ? slice.points.slice(slice.riseIndex)
-        : slice.points.slice(slice.riseIndex, slice.riseIndex + indexKeepCount);
-
+    for (const { slice, keptPoints } of perCurve) {
       diagnostics.push(...detectTrimmedTailNoise(slice, keptPoints, options));
-
       summaries.push(summarizeWindow(slice, level, keptPoints, slice.points.length));
+
       const stretchDenominator = Math.max(keptPoints.length - 1, 1);
       cleanedPoints.push(
         ...keptPoints.map((point, sampleIndex) => {
@@ -229,7 +251,7 @@ export const postProcessCurves = (
       );
     }
 
-    alignedCursor += windowSpan + options.windowGapSlots;
+    alignedCursor += windowSpan + computedGap;
   }
 
   return {
