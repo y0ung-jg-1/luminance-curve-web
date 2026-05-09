@@ -64,7 +64,6 @@ export const App = ({ initialCurves = [] }: AppProps) => {
   const [isDragging, setIsDragging] = useState(false);
   const [isExportMenuOpen, setIsExportMenuOpen] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
-  const [transitionSnapshot, setTransitionSnapshot] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const chartRef = useRef<ChartPanelHandle | null>(null);
   const scene3DRef = useRef<LuminanceScene3DHandle | null>(null);
@@ -92,16 +91,8 @@ export const App = ({ initialCurves = [] }: AppProps) => {
   useEffect(() => {
     if (displayMode === '3d' && !has3DData) {
       setDisplayMode('2d');
-      setTransitionSnapshot(null);
     }
   }, [displayMode, has3DData]);
-
-  useEffect(() => {
-    if (!transitionSnapshot) return undefined;
-
-    const timeout = window.setTimeout(() => setTransitionSnapshot(null), 720);
-    return () => window.clearTimeout(timeout);
-  }, [transitionSnapshot]);
 
   const addParsedWorkbooks = useCallback((workbooks: ParsedWorkbook[]) => {
     if (workbooks.length === 0) return;
@@ -330,7 +321,6 @@ export const App = ({ initialCurves = [] }: AppProps) => {
   const clearCurves = () => {
     setCurves([]);
     setDisplayMode('2d');
-    setTransitionSnapshot(null);
     setMessage('已清空所有曲线。');
   };
 
@@ -342,12 +332,10 @@ export const App = ({ initialCurves = [] }: AppProps) => {
         setMessage('3D 模式需要至少一个后处理稳定窗口。');
         return;
       }
-      setTransitionSnapshot(chartRef.current?.exportPng() ?? null);
       setDisplayMode('3d');
       return;
     }
 
-    setTransitionSnapshot(null);
     setDisplayMode('2d');
   };
 
@@ -613,11 +601,6 @@ export const App = ({ initialCurves = [] }: AppProps) => {
                       processedResult={processedResult}
                       theme={theme}
                     />
-                  </div>
-                ) : null}
-                {transitionSnapshot ? (
-                  <div className="scene-transition-snapshot" aria-hidden="true">
-                    <img src={transitionSnapshot} alt="" />
                   </div>
                 ) : null}
               </>
