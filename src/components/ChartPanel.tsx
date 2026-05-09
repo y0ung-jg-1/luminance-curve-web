@@ -115,55 +115,116 @@ const buildWindowStages = (curves: CurveSeries[]): WindowStage[] => {
   });
 };
 
-const buildRawTooltip = (params: unknown): string => {
-  const items = Array.isArray(params) ? params : [params];
-  const first = readDatum(items[0]);
-  if (!first) return '';
+const findNearestByX = <T,>(items: T[], target: number, getX: (item: T) => number): T | null => {
+  if (items.length === 0) return null;
+  let lo = 0;
+  let hi = items.length - 1;
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1;
+    if (getX(items[mid]) < target) lo = mid + 1;
+    else hi = mid;
+  }
+  let best = items[lo];
+  let bestDist = Math.abs(getX(best) - target);
+  if (lo > 0) {
+    const prev = items[lo - 1];
+    const prevDist = Math.abs(getX(prev) - target);
+    if (prevDist < bestDist) {
+      best = prev;
+      bestDist = prevDist;
+    }
+  }
+  return best;
+};
 
-  const rows = items
-    .map((item) => {
-      const datum = readDatum(item);
-      if (!datum) return '';
-      const marker = (item as { marker?: string }).marker ?? '';
-      const point = datum.point;
+const dotMarker = (color: string): string =>
+  `<span style="display:inline-block;margin-right:6px;border-radius:50%;width:10px;height:10px;background-color:${escapeHtml(
+    color,
+  )};vertical-align:middle;"></span>`;
+
+const readAxisValue = (items: unknown[]): number | null => {
+  for (const item of items) {
+    const candidate = item as { axisValue?: number; value?: unknown };
+    if (typeof candidate?.axisValue === 'number' && Number.isFinite(candidate.axisValue)) {
+      return candidate.axisValue;
+    }
+    if (Array.isArray(candidate?.value) && typeof candidate.value[0] === 'number' && Number.isFinite(candidate.value[0])) {
+      return candidate.value[0];
+    }
+  }
+  return null;
+};
+
+const buildRawTooltip = (viewMode: ViewMode, visibleCurves: CurveSeries[]) => (params: unknown): string => {
+  const items = Array.isArray(params) ? params : [params];
+  const axisValue = readAxisValue(items);
+  if (axisValue === null) return '';
+
+  const isTime = viewMode === 'time';
+  const getX = (point: LuminancePoint) => (isTime ? point.elapsedSeconds : point.levelPercent);
+
+  const headerLabel = isTime
+    ? `时间: ${formatNumber(axisValue, 2)} 秒`
+    : `窗口: ${formatNumber(axisValue, 2)}%`;
+
+  const sortedCurves = visibleCurves.map((curve) => ({
+    curve,
+    points: [...curve.points].sort((a, b) => getX(a) - getX(b)),
+  }));
+
+  const rows = sortedCurves
+    .map(({ curve, points }) => {
+      const point = findNearestByX(points, axisValue, getX);
+      if (!point) return '';
       return `
         <div class="chart-tooltip-row">
-          <span class="chart-tooltip-name">${marker}${escapeHtml(datum.curveName)}</span>
-          <span>${formatNumber(point.luminanceNits, 3)} nits</span>
-        </div>
-        <div class="chart-tooltip-sub">
-          时间 ${formatNumber(point.elapsedSeconds, 3)}s · 周期 ${formatNumber(point.cycleSeconds, 3)}s · ${formatNumber(point.levelPercent, 2)}% · 行 ${point.rowNumber}
+          <span class="chart-tooltip-name">${dotMarker(curve.color)}${escapeHtml(curve.name)}</span>
+          <span class="chart-tooltip-value">${formatNumber(point.luminanceNits, 2)}</span>
         </div>
       `;
     })
     .join('');
 
-  return `<div class="chart-tooltip">${rows}</div>`;
+  if (!rows) return '';
+
+  return `<div class="chart-tooltip">
+    <div class="chart-tooltip-header">${escapeHtml(headerLabel)}</div>
+    ${rows}
+  </div>`;
 };
 
-const buildProcessedTooltip = (params: unknown): string => {
-  const items = Array.isArray(params) ? params : [params];
+const buildProcessedTooltip =
+  (visibleCurves: CurveSeries[], processedResult: PostProcessResult) =>
+  (params: unknown): string => {
+    const items = Array.isArray(params) ? params : [params];
+    const axisValue = readAxisValue(items);
+    if (axisValue === null) return '';
 
-  const rows = items
-    .map((item) => {
-      const datum = readProcessedDatum(item);
-      if (!datum?.point) return '';
-      const marker = (item as { marker?: string }).marker ?? '';
-      const point = datum.point;
-      return `
-        <div class="chart-tooltip-row">
-          <span class="chart-tooltip-name">${marker}${escapeHtml(point.curveName)}</span>
-          <span>${formatNumber(point.luminanceNits, 3)} nits</span>
-        </div>
-        <div class="chart-tooltip-sub">
-          对齐 ${formatNumber(point.alignedSeconds, 3)}s · 窗口内 ${formatNumber(point.windowSeconds, 3)}s · ${formatNumber(point.windowLevel, 0)}% · 行 ${point.rowNumber}
-        </div>
-      `;
-    })
-    .join('');
+    const headerLabel = `对齐时间: ${formatNumber(axisValue, 2)} 秒`;
 
-  return `<div class="chart-tooltip">${rows}</div>`;
-};
+    const rows = visibleCurves
+      .map((curve) => {
+        const points = processedResult.cleanedPoints
+          .filter((p) => p.curveId === curve.id)
+          .sort((a, b) => a.alignedSeconds - b.alignedSeconds);
+        const point = findNearestByX(points, axisValue, (p) => p.alignedSeconds);
+        if (!point) return '';
+        return `
+          <div class="chart-tooltip-row">
+            <span class="chart-tooltip-name">${dotMarker(curve.color)}${escapeHtml(curve.name)}</span>
+            <span class="chart-tooltip-value">${formatNumber(point.luminanceNits, 2)}</span>
+          </div>
+        `;
+      })
+      .join('');
+
+    if (!rows) return '';
+
+    return `<div class="chart-tooltip">
+    <div class="chart-tooltip-header">${escapeHtml(headerLabel)}</div>
+    ${rows}
+  </div>`;
+  };
 
 const commonText = (theme: 'light' | 'dark') => ({
   text: theme === 'dark' ? '#f5f5f7' : '#1d1d1f',
@@ -194,7 +255,8 @@ const buildRawOption = ({
       curveName: curve.name,
     })),
     showSymbol: !isTimeView,
-    symbolSize: isTimeView ? 0 : 5,
+    symbol: 'circle',
+    symbolSize: isTimeView ? 8 : 5,
     sampling: isTimeView ? 'lttb' : undefined,
     smooth: false,
     animationDuration: shouldAnimate ? 220 : 0,
@@ -209,7 +271,7 @@ const buildRawOption = ({
       opacity: isTimeView ? 1 : 0.68,
     },
     emphasis: {
-      focus: 'series',
+      focus: 'none',
       lineStyle: {
         width: 3.4,
       },
@@ -295,7 +357,7 @@ const buildRawOption = ({
           width: 1,
         },
       },
-      formatter: buildRawTooltip,
+      formatter: buildRawTooltip(viewMode, visibleCurves),
     },
     xAxis: {
       type: 'value',
@@ -420,7 +482,8 @@ const buildProcessedOption = ({
       type: 'line',
       data,
       showSymbol: false,
-      symbolSize: 0,
+      symbol: 'circle',
+      symbolSize: 8,
       sampling: 'lttb',
       smooth: false,
       connectNulls: false,
@@ -522,7 +585,7 @@ const buildProcessedOption = ({
           width: 1,
         },
       },
-      formatter: buildProcessedTooltip,
+      formatter: buildProcessedTooltip(visibleCurves, processedResult),
     },
     legend: {
       show: visibleCurves.length > 1,

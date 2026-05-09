@@ -913,23 +913,35 @@ input:focus-visible {
 }
 
 .chart-tooltip {
-  min-width: 245px;
+  min-width: 260px;
+}
+
+.chart-tooltip-header {
+  font-size: 12px;
+  font-weight: 600;
+  margin-bottom: 6px;
+  opacity: 0.75;
 }
 
 .chart-tooltip-row {
   align-items: center;
   display: flex;
-  font-size: 12px;
-  gap: 16px;
+  font-size: 13px;
+  gap: 18px;
   justify-content: space-between;
-  line-height: 1.4;
+  line-height: 1.6;
 }
 
 .chart-tooltip-name {
-  font-weight: 700;
+  font-weight: 600;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.chart-tooltip-value {
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
 }
 
 .chart-tooltip-sub {
