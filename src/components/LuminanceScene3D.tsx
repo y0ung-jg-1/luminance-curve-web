@@ -15,17 +15,13 @@ interface LuminanceScene3DProps {
   theme: 'light' | 'dark';
 }
 
-interface BarMeshState {
-  mesh: THREE.Mesh<THREE.BoxGeometry, THREE.MeshStandardMaterial>;
-  cap: THREE.Mesh<THREE.BoxGeometry, THREE.MeshBasicMaterial>;
-  edge: THREE.LineSegments<THREE.EdgesGeometry, THREE.LineBasicMaterial>;
-  facade: THREE.Line<THREE.BufferGeometry, THREE.LineBasicMaterial> | null;
+interface BarInstanceState {
   datum: LuminanceBar3DDatum;
+  x: number;
+  z: number;
   targetHeight: number;
-  targetOpacity: number;
-  introOpacity: number;
-  targetEdgeOpacity: number;
-  introEdgeOpacity: number;
+  baseColor: THREE.Color;
+  highlightColor: THREE.Color;
   xIndex: number;
   zIndex: number;
 }
@@ -314,94 +310,66 @@ export const LuminanceScene3D = forwardRef<LuminanceScene3DHandle, LuminanceScen
       (grid.material as THREE.Material).opacity = reducedMotion ? gridTargetOpacity : 0;
       scene.add(grid);
 
-      const bars: BarMeshState[] = [];
+      const bars: BarInstanceState[] = [];
       const yScale = sceneHeight / sceneData.axisMaxLuminance;
+      const barCount = sceneData.bars.length;
 
-      for (const datum of sceneData.bars) {
+      const barGeometry = new THREE.BoxGeometry(timeBarWidth, 1, barDepth);
+      const barMaterial = new THREE.MeshStandardMaterial({
+        color: colors.bar,
+        roughness: 0.38,
+        metalness: 0.06,
+      });
+      const barInstances = new THREE.InstancedMesh(barGeometry, barMaterial, barCount);
+      barInstances.castShadow = true;
+      barInstances.receiveShadow = true;
+      barInstances.frustumCulled = false;
+      barInstances.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+      const barColors = new Float32Array(barCount * 3);
+      const barInstanceColor = new THREE.InstancedBufferAttribute(barColors, 3);
+      barInstanceColor.setUsage(THREE.DynamicDrawUsage);
+      barInstances.instanceColor = barInstanceColor;
+      scene.add(barInstances);
+
+      const capGeometry = new THREE.BoxGeometry(timeBarWidth * 1.03, 0.018, barDepth * 1.03);
+      const capMaterial = new THREE.MeshBasicMaterial({
+        color: 0xffffff,
+        transparent: true,
+        opacity: theme === 'dark' ? 0.72 : 0.62,
+      });
+      const capInstances = new THREE.InstancedMesh(capGeometry, capMaterial, barCount);
+      capInstances.frustumCulled = false;
+      capInstances.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+      const capColors = new Float32Array(barCount * 3);
+      capInstances.instanceColor = new THREE.InstancedBufferAttribute(capColors, 3);
+      scene.add(capInstances);
+
+      const baseTint = new THREE.Color(1, 1, 1);
+
+      for (let index = 0; index < barCount; index += 1) {
+        const datum = sceneData.bars[index];
         const x = xForSeconds(datum.alignedSeconds);
         const z = zOrigin + datum.zIndex * zSpacing;
         const targetHeight = Math.max(datum.luminanceNits * yScale, 0.035);
-        const startsVisible = reducedMotion || datum.zIndex === 0;
-        const targetOpacity = theme === 'dark' ? 0.88 : 0.94;
-        const introOpacity = datum.zIndex === 0 && !reducedMotion ? (theme === 'dark' ? 0.16 : 0.25) : targetOpacity;
-        const targetEdgeOpacity = theme === 'dark' ? 0.28 : 0.2;
-        const introEdgeOpacity = datum.zIndex === 0 && !reducedMotion ? (theme === 'dark' ? 0.84 : 0.76) : targetEdgeOpacity;
-        const material = new THREE.MeshStandardMaterial({
-          color: colors.bar,
-          roughness: 0.38,
-          metalness: 0.06,
-          transparent: true,
-          opacity: startsVisible ? introOpacity : 0,
-        });
-        const mesh = new THREE.Mesh(new THREE.BoxGeometry(timeBarWidth, 1, barDepth), material);
-        const initialHeight = startsVisible ? targetHeight : 0.001;
-        mesh.position.set(x, initialHeight / 2, z);
-        mesh.scale.y = initialHeight;
-        mesh.visible = startsVisible || datum.zIndex !== 0;
-        mesh.castShadow = true;
-        mesh.receiveShadow = true;
-        mesh.userData.datum = datum;
-        scene.add(mesh);
-
-        const cap = new THREE.Mesh(
-          new THREE.BoxGeometry(timeBarWidth * 1.03, 0.018, barDepth * 1.03),
-          new THREE.MeshBasicMaterial({
-            color: new THREE.Color(datum.curveColor),
-            transparent: true,
-            opacity: theme === 'dark' ? 0.72 : 0.62,
-          }),
-        );
-        cap.position.set(x, startsVisible ? targetHeight + 0.018 : 0.018, z);
-        cap.visible = startsVisible;
-        scene.add(cap);
-
-        const edge = new THREE.LineSegments(
-          new THREE.EdgesGeometry(new THREE.BoxGeometry(timeBarWidth, 1, barDepth)),
-          new THREE.LineBasicMaterial({
-            color: new THREE.Color(datum.curveColor),
-            transparent: true,
-            opacity: startsVisible ? introEdgeOpacity : 0,
-          }),
-        );
-        mesh.add(edge);
-
-        const facade =
-          datum.zIndex === 0 && !reducedMotion && sceneData.bars.length <= 600
-            ? new THREE.Line(
-                new THREE.BufferGeometry().setFromPoints([
-                  new THREE.Vector3(x - timeBarWidth / 2, 0.018, z),
-                  new THREE.Vector3(x - timeBarWidth / 2, targetHeight, z),
-                  new THREE.Vector3(x + timeBarWidth / 2, targetHeight, z),
-                  new THREE.Vector3(x + timeBarWidth / 2, 0.018, z),
-                  new THREE.Vector3(x - timeBarWidth / 2, 0.018, z),
-                ]),
-                new THREE.LineBasicMaterial({
-                  color: new THREE.Color(datum.curveColor),
-                  transparent: true,
-                  opacity: introEdgeOpacity,
-                }),
-              )
-            : null;
-        if (facade) {
-          facade.renderOrder = 6;
-          scene.add(facade);
-        }
+        const curveColor = new THREE.Color(datum.curveColor);
+        const highlightColor = curveColor.clone().lerp(new THREE.Color(1, 1, 1), 0.4);
 
         bars.push({
-          mesh,
-          cap,
-          edge,
-          facade,
           datum,
+          x,
+          z,
           targetHeight,
-          targetOpacity,
-          introOpacity,
-          targetEdgeOpacity,
-          introEdgeOpacity,
+          baseColor: baseTint.clone(),
+          highlightColor,
           xIndex: datum.xIndex,
           zIndex: datum.zIndex,
         });
+
+        barInstances.setColorAt(index, baseTint);
+        capInstances.setColorAt(index, curveColor);
       }
+      barInstanceColor.needsUpdate = true;
+      if (capInstances.instanceColor) capInstances.instanceColor.needsUpdate = true;
 
       const labelColor = colors.muted;
 
@@ -509,19 +477,18 @@ export const LuminanceScene3D = forwardRef<LuminanceScene3DHandle, LuminanceScen
 
       const raycaster = new THREE.Raycaster();
       const pointer = new THREE.Vector2();
-      const hoveredMeshRef: { current: BarMeshState | null } = { current: null };
+      let hoveredIndex = -1;
 
-      const setHoveredMesh = (next: BarMeshState | null) => {
-        if (hoveredMeshRef.current === next) return;
-        if (hoveredMeshRef.current) {
-          hoveredMeshRef.current.mesh.material.emissive.setHex(0x000000);
-          hoveredMeshRef.current.mesh.material.emissiveIntensity = 0;
+      const setHoveredIndex = (next: number) => {
+        if (hoveredIndex === next) return;
+        if (hoveredIndex >= 0 && hoveredIndex < bars.length) {
+          barInstances.setColorAt(hoveredIndex, bars[hoveredIndex].baseColor);
         }
-        hoveredMeshRef.current = next;
-        if (next) {
-          next.mesh.material.emissive = new THREE.Color(next.datum.curveColor);
-          next.mesh.material.emissiveIntensity = 0.2;
+        hoveredIndex = next;
+        if (next >= 0 && next < bars.length) {
+          barInstances.setColorAt(next, bars[next].highlightColor);
         }
+        if (barInstances.instanceColor) barInstances.instanceColor.needsUpdate = true;
       };
 
       const handlePointerMove = (event: PointerEvent) => {
@@ -529,17 +496,17 @@ export const LuminanceScene3D = forwardRef<LuminanceScene3DHandle, LuminanceScen
         pointer.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
         pointer.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
         raycaster.setFromCamera(pointer, camera);
-        const hit = raycaster.intersectObjects(bars.map((bar) => bar.mesh), false)[0];
+        const hit = raycaster.intersectObject(barInstances, false)[0];
+        const instanceId = hit?.instanceId;
 
-        if (!hit) {
-          setHoveredMesh(null);
+        if (instanceId === undefined || instanceId < 0 || instanceId >= bars.length) {
+          setHoveredIndex(-1);
           setTooltip(null);
           return;
         }
 
-        const bar = bars.find((candidate) => candidate.mesh === hit.object);
-        if (!bar) return;
-        setHoveredMesh(bar);
+        const bar = bars[instanceId];
+        setHoveredIndex(instanceId);
         setTooltip({
           x: event.clientX - rect.left + 14,
           y: event.clientY - rect.top + 14,
@@ -548,7 +515,7 @@ export const LuminanceScene3D = forwardRef<LuminanceScene3DHandle, LuminanceScen
       };
 
       const handlePointerLeave = () => {
-        setHoveredMesh(null);
+        setHoveredIndex(-1);
         setTooltip(null);
       };
 
@@ -585,15 +552,40 @@ export const LuminanceScene3D = forwardRef<LuminanceScene3DHandle, LuminanceScen
       const introDurationMs = hasAnimatedRows
         ? revealStartMs + lastAnimatedRowOffset * rowDelayMs + timeSweepMs + barRiseMs + finalSettleMs
         : cameraPathMs + finalSettleMs;
+
+      const barMatrix = new THREE.Matrix4();
+      const capMatrix = new THREE.Matrix4();
+      const tmpScale = new THREE.Vector3();
+      const tmpPosition = new THREE.Vector3();
+      const tmpQuat = new THREE.Quaternion();
+
+      const writeBarTransform = (index: number, height: number) => {
+        const bar = bars[index];
+        const safeHeight = Math.max(height, 0.0001);
+        tmpScale.set(1, safeHeight, 1);
+        tmpPosition.set(bar.x, safeHeight / 2, bar.z);
+        barMatrix.compose(tmpPosition, tmpQuat, tmpScale);
+        barInstances.setMatrixAt(index, barMatrix);
+
+        tmpScale.set(1, 1, 1);
+        tmpPosition.set(bar.x, height + 0.018, bar.z);
+        capMatrix.compose(tmpPosition, tmpQuat, tmpScale);
+        capInstances.setMatrixAt(index, capMatrix);
+      };
+
       if (reducedMotion) {
-        for (const bar of bars) {
-          bar.mesh.scale.y = bar.targetHeight;
-          bar.mesh.position.y = bar.targetHeight / 2;
-          bar.mesh.material.opacity = bar.targetOpacity;
-          bar.edge.material.opacity = bar.targetEdgeOpacity;
-          bar.cap.position.y = bar.targetHeight + 0.018;
-          bar.cap.visible = true;
+        for (let index = 0; index < bars.length; index += 1) {
+          writeBarTransform(index, bars[index].targetHeight);
         }
+        barInstances.instanceMatrix.needsUpdate = true;
+        capInstances.instanceMatrix.needsUpdate = true;
+      } else {
+        // start invisible (height 0) — every bar will scale-grow during the intro
+        for (let index = 0; index < bars.length; index += 1) {
+          writeBarTransform(index, 0);
+        }
+        barInstances.instanceMatrix.needsUpdate = true;
+        capInstances.instanceMatrix.needsUpdate = true;
       }
 
       const getCameraPathFrame = (progress: number) => {
@@ -636,33 +628,22 @@ export const LuminanceScene3D = forwardRef<LuminanceScene3DHandle, LuminanceScen
           ground.material.opacity = lerp(0.02, groundTargetOpacity, worldProgress);
           (grid.material as THREE.Material).opacity = lerp(0, gridTargetOpacity, worldProgress);
 
-          for (const bar of bars) {
+          for (let index = 0; index < bars.length; index += 1) {
+            const bar = bars[index];
+            let progress: number;
             if (bar.zIndex === 0) {
-              bar.mesh.scale.y = bar.targetHeight;
-              bar.mesh.position.y = bar.targetHeight / 2;
-              bar.mesh.visible = true;
-              bar.mesh.material.opacity = lerp(bar.introOpacity, bar.targetOpacity, frontRowProgress);
-              bar.edge.material.opacity = lerp(bar.introEdgeOpacity, bar.targetEdgeOpacity, frontRowProgress);
-              if (bar.facade) {
-                bar.facade.material.opacity = lerp(bar.introEdgeOpacity, 0, frontRowProgress);
-                bar.facade.visible = frontRowProgress < 0.98;
-              }
-              bar.cap.position.y = bar.targetHeight + 0.018;
-              bar.cap.visible = true;
-              continue;
+              progress = frontRowProgress;
+            } else {
+              const timeRatio =
+                sceneData.maxAlignedSeconds > 0 ? clamp01(bar.datum.alignedSeconds / sceneData.maxAlignedSeconds) : 0;
+              const stagger = revealStartMs + (bar.zIndex - 1) * rowDelayMs + timeRatio * timeSweepMs;
+              progress = easeOutCubic(clamp01((elapsed - stagger) / barRiseMs));
             }
-
-            const timeRatio = sceneData.maxAlignedSeconds > 0 ? clamp01(bar.datum.alignedSeconds / sceneData.maxAlignedSeconds) : 0;
-            const stagger = revealStartMs + (bar.zIndex - 1) * rowDelayMs + timeRatio * timeSweepMs;
-            const progress = easeOutCubic(clamp01((elapsed - stagger) / barRiseMs));
-            const height = Math.max(bar.targetHeight * progress, 0.001);
-            bar.mesh.scale.y = height;
-            bar.mesh.position.y = height / 2;
-            bar.mesh.material.opacity = bar.targetOpacity;
-            bar.edge.material.opacity = lerp(0, bar.targetEdgeOpacity, progress);
-            bar.cap.position.y = height + 0.018;
-            bar.cap.visible = progress > 0.04;
+            const height = Math.max(bar.targetHeight * progress, 0.0001);
+            writeBarTransform(index, height);
           }
+          barInstances.instanceMatrix.needsUpdate = true;
+          capInstances.instanceMatrix.needsUpdate = true;
 
           if (elapsed >= introDurationMs) {
             introComplete = true;
@@ -674,12 +655,11 @@ export const LuminanceScene3D = forwardRef<LuminanceScene3DHandle, LuminanceScen
             camera.lookAt(target);
             ground.material.opacity = groundTargetOpacity;
             (grid.material as THREE.Material).opacity = gridTargetOpacity;
-            for (const bar of bars) {
-              bar.mesh.visible = true;
-              bar.mesh.material.opacity = bar.targetOpacity;
-              bar.edge.material.opacity = bar.targetEdgeOpacity;
-              if (bar.facade) bar.facade.visible = false;
+            for (let index = 0; index < bars.length; index += 1) {
+              writeBarTransform(index, bars[index].targetHeight);
             }
+            barInstances.instanceMatrix.needsUpdate = true;
+            capInstances.instanceMatrix.needsUpdate = true;
           }
         }
 
