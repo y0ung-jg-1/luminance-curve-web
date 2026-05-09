@@ -148,6 +148,7 @@ export interface LuminanceScene3DData {
 
 export interface LuminanceApi {
   selectExcelFiles: () => Promise<ImportedExcelFile[]>;
+  selectDatabaseFiles: () => Promise<ImportedExcelFile[]>;
   saveChartImage: (dataUrl: string) => Promise<string | null>;
   saveChartSvg: (svg: string) => Promise<string | null>;
   saveLayeredSvgs: (files: SvgExportFile[]) => Promise<string[]>;

@@ -76,6 +76,7 @@ const createWorkbookBase64 = (processable = false) => {
 const setupElectronApi = (selectExcelFiles: LuminanceApi['selectExcelFiles'] = vi.fn().mockResolvedValue([])) => {
   window.luminanceAPI = {
     selectExcelFiles,
+    selectDatabaseFiles: vi.fn().mockResolvedValue([]),
     saveChartImage: vi.fn().mockResolvedValue('C:\\chart.png'),
     saveChartSvg: vi.fn().mockResolvedValue('C:\\chart.svg'),
     saveLayeredSvgs: vi.fn().mockResolvedValue(['C:\\ai-layered.svg']),
@@ -92,7 +93,7 @@ describe('App', () => {
   it('renders an empty dual-runtime import state', () => {
     render(<App />);
 
-    expect(screen.getByText('把 Excel 亮度数据拖到这里')).toBeInTheDocument();
+    expect(screen.getByText('把 Excel 或数据库亮度数据拖到这里')).toBeInTheDocument();
     expect(screen.getByText('等待导入')).toBeInTheDocument();
     expect(screen.getByText('Excel 文件只在本机解析，不上传到服务器。')).toBeInTheDocument();
     expect(screen.getByText(/窗口顺序：1% -> 2% -> 3% -> 5%/)).toBeInTheDocument();

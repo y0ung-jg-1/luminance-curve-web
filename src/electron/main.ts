@@ -96,6 +96,32 @@ ipcMain.handle('files:selectExcelFiles', async (): Promise<ImportedExcelFile[]> 
   );
 });
 
+ipcMain.handle('files:selectDatabaseFiles', async (): Promise<ImportedExcelFile[]> => {
+  if (!mainWindow) return [];
+
+  const result = await dialog.showOpenDialog(mainWindow, {
+    title: '导入亮度数据库',
+    properties: ['openFile', 'multiSelections'],
+    filters: [{ name: 'SQLite Database', extensions: ['db'] }],
+  });
+
+  if (result.canceled) return [];
+
+  return Promise.all(
+    result.filePaths.map(async (filePath) => {
+      const buffer = await readFile(filePath);
+      if (buffer.byteLength > maxWorkbookBytes) {
+        throw new Error(`${path.basename(filePath)} 超过 25 MB，已拒绝导入。`);
+      }
+      return {
+        name: path.basename(filePath),
+        path: filePath,
+        data: buffer.toString('base64'),
+      };
+    }),
+  );
+});
+
 ipcMain.handle('chart:saveImage', async (_event, dataUrl: string): Promise<string | null> => {
   if (!mainWindow) return null;
   const match = /^data:image\/png;base64,(?<data>[A-Za-z0-9+/=]+)$/.exec(dataUrl);

@@ -202,11 +202,37 @@ button {
   color: var(--text);
 }
 
+.button.excel {
+  background: #107c41;
+  color: #ffffff;
+}
+
+.button.database {
+  background: #007aff;
+  color: #ffffff;
+}
+
 .button.primary:hover:not(:disabled) {
   background: #0067d8;
 }
 
 .dark .button.primary:hover:not(:disabled) {
+  background: #2997ff;
+}
+
+.button.excel:hover:not(:disabled) {
+  background: #0e6b38;
+}
+
+.dark .button.excel:hover:not(:disabled) {
+  background: #1ea35a;
+}
+
+.button.database:hover:not(:disabled) {
+  background: #0067d8;
+}
+
+.dark .button.database:hover:not(:disabled) {
   background: #2997ff;
 }
 
@@ -625,6 +651,12 @@ input:focus-visible {
   max-width: 520px;
 }
 
+.empty-state-actions {
+  display: flex;
+  gap: 12px;
+  margin-top: 6px;
+}
+
 .drop-overlay {
   align-items: center;
   background: rgba(0, 122, 255, 0.16);
@@ -683,6 +715,151 @@ input:focus-visible {
   height: 26px;
   justify-content: center;
   width: 26px;
+}
+
+.picker-overlay {
+  align-items: center;
+  background: rgba(0, 0, 0, 0.32);
+  bottom: 0;
+  display: flex;
+  justify-content: center;
+  left: 0;
+  position: fixed;
+  right: 0;
+  top: 0;
+  z-index: 40;
+  padding: 36px;
+}
+
+.picker-card {
+  background: var(--surface-solid);
+  border: 1px solid var(--border-strong);
+  border-radius: 12px;
+  box-shadow: var(--shadow);
+  color: var(--text);
+  display: flex;
+  flex-direction: column;
+  max-height: min(720px, calc(100vh - 72px));
+  width: min(640px, calc(100vw - 72px));
+  overflow: hidden;
+}
+
+.picker-header {
+  align-items: flex-start;
+  display: flex;
+  gap: 12px;
+  justify-content: space-between;
+  padding: 22px 24px 14px;
+}
+
+.picker-header h2 {
+  font-size: 17px;
+  font-weight: 600;
+  margin: 4px 0 4px;
+}
+
+.picker-sub {
+  color: var(--text-muted);
+  font-size: 12px;
+  margin: 0;
+}
+
+.picker-toolbar {
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  gap: 8px;
+  padding: 0 24px 14px;
+}
+
+.picker-body {
+  flex: 1 1 auto;
+  overflow-y: auto;
+  padding: 8px 24px 12px;
+}
+
+.picker-empty {
+  color: var(--text-muted);
+  font-size: 13px;
+  margin: 24px 0;
+  text-align: center;
+}
+
+.picker-group + .picker-group {
+  margin-top: 14px;
+}
+
+.picker-group-title {
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  margin: 12px 0 6px;
+  text-transform: uppercase;
+}
+
+.picker-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.picker-row {
+  align-items: center;
+  background: var(--surface-muted);
+  border: 1px solid transparent;
+  border-radius: 8px;
+  cursor: pointer;
+  display: flex;
+  gap: 12px;
+  padding: 10px 12px;
+  transition: background 120ms ease, border-color 120ms ease;
+}
+
+.picker-row:hover {
+  background: var(--surface);
+  border-color: var(--border);
+}
+
+.picker-row.active {
+  background: var(--surface);
+  border-color: var(--primary);
+}
+
+.picker-row input[type='checkbox'] {
+  accent-color: var(--primary);
+  height: 16px;
+  width: 16px;
+}
+
+.picker-row-main {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.picker-row-main strong {
+  font-size: 13px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.picker-row-meta {
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+.picker-footer {
+  border-top: 1px solid var(--border);
+  display: flex;
+  gap: 10px;
+  justify-content: flex-end;
+  padding: 14px 24px 18px;
 }
 
 .chart-tooltip {

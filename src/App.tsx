@@ -4,6 +4,7 @@ import {
   Box,
   ChevronDown,
   Clock3,
+  Database,
   Download,
   Eye,
   EyeOff,
@@ -18,11 +19,17 @@ import {
   X,
 } from 'lucide-react';
 import { ChartPanel, type ChartPanelHandle } from './components/ChartPanel';
+import { ExecutionPicker, type SelectionEntry } from './components/ExecutionPicker';
 import { LuminanceScene3D, type LuminanceScene3DHandle } from './components/LuminanceScene3D';
 import { downloadBlob, downloadDataUrl, downloadTextFile } from './lib/download';
 import { buildCleanWorkbookArrayBuffer, buildCleanWorkbookBase64 } from './lib/exportCleanWorkbook';
 import { formatCompact, formatNumber } from './lib/format';
 import { buildIllustratorLayeredSvgs } from './lib/illustratorSvg';
+import {
+  buildCurveFromExecution,
+  listLuminanceExecutions,
+  type DatabaseFileExecutions,
+} from './lib/parseDatabase';
 import { base64ToUint8Array, parseWorkbook } from './lib/parseWorkbook';
 import { postProcessCurves } from './lib/postProcess';
 import { readBrowserFile } from './lib/readBrowserFile';
@@ -47,6 +54,12 @@ const colors = [
 const maxWorkbookBytes = 25 * 1024 * 1024;
 const createId = (name: string) => `${name}-${Date.now()}-${Math.random().toString(16).slice(2)}`;
 const isExcelFile = (fileName: string) => fileName.toLowerCase().endsWith('.xlsx');
+const isDatabaseFile = (fileName: string) => fileName.toLowerCase().endsWith('.db');
+
+interface PickerState {
+  files: DatabaseFileExecutions[];
+  buffers: Map<string, Uint8Array>;
+}
 
 interface AppProps {
   initialCurves?: CurveSeries[];
@@ -64,7 +77,9 @@ export const App = ({ initialCurves = [] }: AppProps) => {
   const [isDragging, setIsDragging] = useState(false);
   const [isExportMenuOpen, setIsExportMenuOpen] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
+  const [pickerState, setPickerState] = useState<PickerState | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const dbInputRef = useRef<HTMLInputElement | null>(null);
   const chartRef = useRef<ChartPanelHandle | null>(null);
   const scene3DRef = useRef<LuminanceScene3DHandle | null>(null);
 
@@ -172,6 +187,132 @@ export const App = ({ initialCurves = [] }: AppProps) => {
     [addParsedWorkbooks],
   );
 
+  const importDatabaseFiles = useCallback(
+    async (entries: Array<{ name: string; path?: string; buffer: Uint8Array }>) => {
+      const files: DatabaseFileExecutions[] = [];
+      const buffers = new Map<string, Uint8Array>();
+      const errors: string[] = [];
+
+      for (const entry of entries) {
+        try {
+          if (entry.buffer.byteLength === 0) {
+            throw new Error('文件为空，无法读取。');
+          }
+          const result = await listLuminanceExecutions(entry.buffer, entry.name, entry.path);
+          files.push(result);
+          buffers.set(entry.name, entry.buffer);
+        } catch (error) {
+          errors.push(`${entry.name}: ${(error as Error).message}`);
+        }
+      }
+
+      if (errors.length > 0) {
+        setMessage(errors.join(' / '));
+      }
+
+      const totalExecutions = files.reduce((sum, f) => sum + f.executions.length, 0);
+      if (totalExecutions === 0) {
+        if (errors.length === 0) {
+          setMessage('所选数据库中没有亮度测试执行记录。');
+        }
+        return;
+      }
+
+      setPickerState({ files, buffers });
+    },
+    [],
+  );
+
+  const handlePickerCancel = useCallback(() => setPickerState(null), []);
+
+  const handlePickerConfirm = useCallback(
+    async (selections: SelectionEntry[]) => {
+      if (!pickerState) {
+        setPickerState(null);
+        return;
+      }
+      const parsed: ParsedWorkbook[] = [];
+      const errors: string[] = [];
+
+      for (const entry of selections) {
+        const buffer = pickerState.buffers.get(entry.fileName);
+        if (!buffer) {
+          errors.push(`${entry.fileName}: 缓冲区已丢失。`);
+          continue;
+        }
+        try {
+          const workbook = await buildCurveFromExecution(buffer, entry.execution, {
+            fileName: entry.fileName,
+            filePath: entry.filePath,
+          });
+          parsed.push(workbook);
+        } catch (error) {
+          errors.push(`${entry.fileName} #${entry.execution.executionId}: ${(error as Error).message}`);
+        }
+      }
+
+      addParsedWorkbooks(parsed);
+
+      if (parsed.length > 0) {
+        const count = parsed.reduce((sum, item) => sum + item.stats.pointCount, 0);
+        setMessage(`已导入 ${parsed.length} 条曲线，${formatCompact(count)} 个采样点。`);
+      }
+      if (errors.length > 0) {
+        setMessage(errors.join(' / '));
+      }
+
+      setPickerState(null);
+    },
+    [pickerState, addParsedWorkbooks],
+  );
+
+  const handleSelectDatabase = async () => {
+    if (window.luminanceAPI) {
+      setIsImporting(true);
+      try {
+        const files = await window.luminanceAPI.selectDatabaseFiles();
+        if (files.length === 0) return;
+        const entries = files.map((file) => ({
+          name: file.name,
+          path: file.path,
+          buffer: base64ToUint8Array(file.data),
+        }));
+        await importDatabaseFiles(entries);
+      } catch (error) {
+        setMessage((error as Error).message);
+      } finally {
+        setIsImporting(false);
+      }
+      return;
+    }
+
+    dbInputRef.current?.click();
+  };
+
+  const handleDatabaseFileInput = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const input = event.currentTarget;
+    const files = Array.from(input.files ?? []);
+    input.value = '';
+    if (files.length === 0) return;
+    setIsImporting(true);
+    try {
+      const entries = await Promise.all(
+        files.map(async (file) => {
+          if (file.size > maxWorkbookBytes) {
+            throw new Error(`${file.name} 超过 25 MB，已拒绝导入。`);
+          }
+          const arrayBuffer = await file.arrayBuffer();
+          return { name: file.name, buffer: new Uint8Array(arrayBuffer) };
+        }),
+      );
+      await importDatabaseFiles(entries);
+    } catch (error) {
+      setMessage((error as Error).message);
+    } finally {
+      setIsImporting(false);
+    }
+  };
+
   const handleSelectFiles = async () => {
     if (window.luminanceAPI) {
       setIsImporting(true);
@@ -200,7 +341,36 @@ export const App = ({ initialCurves = [] }: AppProps) => {
     setIsDragging(false);
     const files = Array.from(event.dataTransfer.files);
     if (files.length === 0) return;
-    await importBrowserFiles(files);
+
+    const dbFiles = files.filter((file) => isDatabaseFile(file.name));
+    const excelFiles = files.filter((file) => isExcelFile(file.name));
+    const ignored = files.filter((file) => !isDatabaseFile(file.name) && !isExcelFile(file.name));
+
+    if (excelFiles.length > 0) {
+      await importBrowserFiles(excelFiles);
+    }
+    if (dbFiles.length > 0) {
+      setIsImporting(true);
+      try {
+        const entries = await Promise.all(
+          dbFiles.map(async (file) => {
+            if (file.size > maxWorkbookBytes) {
+              throw new Error(`${file.name} 超过 25 MB，已拒绝导入。`);
+            }
+            const arrayBuffer = await file.arrayBuffer();
+            return { name: file.name, buffer: new Uint8Array(arrayBuffer) };
+          }),
+        );
+        await importDatabaseFiles(entries);
+      } catch (error) {
+        setMessage((error as Error).message);
+      } finally {
+        setIsImporting(false);
+      }
+    }
+    if (ignored.length > 0) {
+      setMessage(`忽略不支持的文件：${ignored.map((file) => file.name).join('、')}`);
+    }
   };
 
   const handleExportPng = async () => {
@@ -360,6 +530,15 @@ export const App = ({ initialCurves = [] }: AppProps) => {
         onChange={handleFileInput}
         aria-label="选择 Excel 文件"
       />
+      <input
+        ref={dbInputRef}
+        className="file-input"
+        type="file"
+        accept=".db"
+        multiple
+        onChange={handleDatabaseFileInput}
+        aria-label="选择数据库文件"
+      />
 
       <header className="topbar">
         <div className="brand">
@@ -373,9 +552,13 @@ export const App = ({ initialCurves = [] }: AppProps) => {
         </div>
 
         <div className="topbar-actions">
-          <button className="button primary" type="button" onClick={handleSelectFiles} disabled={isImporting}>
+          <button className="button excel" type="button" onClick={handleSelectFiles} disabled={isImporting}>
             <Upload size={17} />
             {isImporting ? '导入中' : '导入 Excel'}
+          </button>
+          <button className="button database" type="button" onClick={handleSelectDatabase} disabled={isImporting}>
+            <Database size={17} />
+            导入数据库
           </button>
           <div className="export-menu">
             <button
@@ -574,12 +757,18 @@ export const App = ({ initialCurves = [] }: AppProps) => {
                 <div className="empty-icon">
                   <Upload size={30} />
                 </div>
-                <h2>把 Excel 亮度数据拖到这里</h2>
-                <p>也可以点击右上角导入。应用会读取首个工作表的 B-E 列，保留每个原始采样点。</p>
-                <button className="button primary" type="button" onClick={handleSelectFiles}>
-                  <Upload size={17} />
-                  导入 Excel
-                </button>
+                <h2>把 Excel 或数据库亮度数据拖到这里</h2>
+                <p>Excel 读取首个工作表的 B-E 列；数据库读取「亮度测试」项的所有执行，导入时可多选。</p>
+                <div className="empty-state-actions">
+                  <button className="button excel" type="button" onClick={handleSelectFiles} disabled={isImporting}>
+                    <Upload size={17} />
+                    导入 Excel
+                  </button>
+                  <button className="button database" type="button" onClick={handleSelectDatabase} disabled={isImporting}>
+                    <Database size={17} />
+                    导入数据库
+                  </button>
+                </div>
               </div>
             ) : (
               <>
@@ -613,10 +802,17 @@ export const App = ({ initialCurves = [] }: AppProps) => {
         <div className="drop-overlay" aria-hidden="true">
           <div>
             <Upload size={34} />
-            <span>松开鼠标导入 .xlsx 文件</span>
+            <span>松开鼠标导入 .xlsx 或 .db 文件</span>
           </div>
         </div>
       ) : null}
+
+      <ExecutionPicker
+        open={pickerState !== null}
+        files={pickerState?.files ?? []}
+        onCancel={handlePickerCancel}
+        onConfirm={handlePickerConfirm}
+      />
 
       {message ? (
         <div className="toast" role="status">

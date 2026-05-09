@@ -3,6 +3,7 @@ import type { ImportedExcelFile, LuminanceApi, SvgExportFile } from '../types';
 
 const api: LuminanceApi = {
   selectExcelFiles: () => ipcRenderer.invoke('files:selectExcelFiles') as Promise<ImportedExcelFile[]>,
+  selectDatabaseFiles: () => ipcRenderer.invoke('files:selectDatabaseFiles') as Promise<ImportedExcelFile[]>,
   saveChartImage: (dataUrl: string) => ipcRenderer.invoke('chart:saveImage', dataUrl) as Promise<string | null>,
   saveChartSvg: (svg: string) => ipcRenderer.invoke('chart:saveSvg', svg) as Promise<string | null>,
   saveLayeredSvgs: (files: SvgExportFile[]) => ipcRenderer.invoke('chart:saveLayeredSvgs', files) as Promise<string[]>,

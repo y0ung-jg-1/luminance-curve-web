@@ -1,5 +1,6 @@
 import * as XLSX from 'xlsx';
-import type { LuminancePoint, LuminanceStats, ParsedWorkbook } from '../types';
+import type { LuminancePoint, ParsedWorkbook } from '../types';
+import { summarizeLuminancePoints } from './luminanceStats';
 
 const toNumber = (value: unknown): number | null => {
   if (typeof value === 'number' && Number.isFinite(value)) return value;
@@ -10,23 +11,6 @@ const toNumber = (value: unknown): number | null => {
     return Number.isFinite(parsed) ? parsed : null;
   }
   return null;
-};
-
-const summarize = (points: LuminancePoint[]): LuminanceStats => {
-  const luminance = points.map((point) => point.luminanceNits);
-  const elapsed = points.map((point) => point.elapsedSeconds);
-  const levels = Array.from(new Set(points.map((point) => point.levelPercent))).sort((a, b) => a - b);
-  const sum = luminance.reduce((total, value) => total + value, 0);
-
-  return {
-    pointCount: points.length,
-    minLuminance: Math.min(...luminance),
-    maxLuminance: Math.max(...luminance),
-    averageLuminance: sum / points.length,
-    minElapsedSeconds: Math.min(...elapsed),
-    maxElapsedSeconds: Math.max(...elapsed),
-    levels,
-  };
 };
 
 export const base64ToUint8Array = (base64: string): Uint8Array => {
@@ -89,6 +73,6 @@ export const parseWorkbook = (input: ArrayBuffer | Uint8Array, name: string, wor
     path: workbookPath,
     sheetName,
     points,
-    stats: summarize(points),
+    stats: summarizeLuminancePoints(points),
   };
 };
