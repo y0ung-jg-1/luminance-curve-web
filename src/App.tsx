@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
+  AlertTriangle,
   BarChart3,
   Box,
   ChevronDown,
@@ -13,6 +14,7 @@ import {
   FileSpreadsheet,
   Layers,
   Moon,
+  Sparkles,
   Sun,
   Trash2,
   Upload,
@@ -64,6 +66,43 @@ const createId = (name: string) => `${name}-${Date.now()}-${Math.random().toStri
 const isExcelFile = (fileName: string) => fileName.toLowerCase().endsWith('.xlsx');
 const isDatabaseFile = (fileName: string) => fileName.toLowerCase().endsWith('.db');
 
+const sampleImbalanceThreshold = 1.2;
+
+interface SampleImbalance {
+  level: number;
+  ratio: number;
+  minCount: number;
+  maxCount: number;
+}
+
+const detectSampleImbalance = (curves: CurveSeries[]): SampleImbalance | null => {
+  if (curves.length < 2) return null;
+  const levels = new Set<number>();
+  for (const curve of curves) {
+    for (const point of curve.points) levels.add(point.levelPercent);
+  }
+  let worst: SampleImbalance | null = null;
+  for (const level of levels) {
+    const counts: number[] = [];
+    for (const curve of curves) {
+      let count = 0;
+      for (const point of curve.points) {
+        if (Math.abs(point.levelPercent - level) < 1e-6) count += 1;
+      }
+      if (count > 0) counts.push(count);
+    }
+    if (counts.length < 2) continue;
+    const min = Math.min(...counts);
+    const max = Math.max(...counts);
+    if (min === 0) continue;
+    const ratio = max / min;
+    if (ratio > sampleImbalanceThreshold && (!worst || ratio > worst.ratio)) {
+      worst = { level, ratio, minCount: min, maxCount: max };
+    }
+  }
+  return worst;
+};
+
 interface PickerState {
   files: DatabaseFileExecutions[];
   buffers: Map<string, Uint8Array>;
@@ -87,12 +126,16 @@ export const App = ({ initialCurves = [] }: AppProps) => {
   const [isExportMenuOpen, setIsExportMenuOpen] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [pickerState, setPickerState] = useState<PickerState | null>(null);
+  const [alignmentAlert, setAlignmentAlert] = useState<SampleImbalance | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const dbInputRef = useRef<HTMLInputElement | null>(null);
   const chartRef = useRef<ChartPanelHandle | null>(null);
   const scene3DRef = useRef<LuminanceScene3DHandle | null>(null);
 
   const visibleCurves = useMemo(() => curves.filter((curve) => curve.visible), [curves]);
+  const sampleImbalance = useMemo(() => detectSampleImbalance(visibleCurves), [visibleCurves]);
+  const showImbalanceWarning =
+    sampleImbalance !== null && processingMode === 'processed' && alignmentMode === 'index';
   const processedResult = useMemo(
     () => postProcessCurves(visibleCurves, { alignmentMode }),
     [visibleCurves, alignmentMode],
@@ -120,6 +163,18 @@ export const App = ({ initialCurves = [] }: AppProps) => {
       setDisplayMode('2d');
     }
   }, [displayMode, has3DData]);
+
+  const prevCurveCountRef = useRef(curves.length);
+  useEffect(() => {
+    const grew = curves.length > prevCurveCountRef.current;
+    prevCurveCountRef.current = curves.length;
+    if (!grew) return;
+    if (processingMode !== 'processed') return;
+    if (alignmentMode !== 'index') return;
+    if (!sampleImbalance) return;
+    setAlignmentMode('normalized');
+    setAlignmentAlert(sampleImbalance);
+  }, [curves, alignmentMode, processingMode, sampleImbalance]);
 
   const addParsedWorkbooks = useCallback((workbooks: ParsedWorkbook[]) => {
     if (workbooks.length === 0) return;
@@ -740,23 +795,33 @@ export const App = ({ initialCurves = [] }: AppProps) => {
                   </button>
                 </div>
               ) : (
-                <div className="segmented-control" aria-label="对齐方式">
-                  <button
-                    className={alignmentMode === 'index' ? 'active' : ''}
-                    type="button"
-                    onClick={() => setAlignmentMode('index')}
-                    aria-pressed={alignmentMode === 'index'}
-                  >
-                    采样序号
-                  </button>
-                  <button
-                    className={alignmentMode === 'normalized' ? 'active' : ''}
-                    type="button"
-                    onClick={() => setAlignmentMode('normalized')}
-                    aria-pressed={alignmentMode === 'normalized'}
-                  >
-                    归一化
-                  </button>
+                <div className="alignment-block">
+                  {showImbalanceWarning ? (
+                    <div className="alignment-warning" role="alert">
+                      <AlertTriangle size={14} />
+                      <span>
+                        当前数据采样率差异过大，请使用「<strong>归一化</strong>」
+                      </span>
+                    </div>
+                  ) : null}
+                  <div className="segmented-control" aria-label="对齐方式">
+                    <button
+                      className={alignmentMode === 'index' ? 'active' : ''}
+                      type="button"
+                      onClick={() => setAlignmentMode('index')}
+                      aria-pressed={alignmentMode === 'index'}
+                    >
+                      采样序号
+                    </button>
+                    <button
+                      className={alignmentMode === 'normalized' ? 'active' : ''}
+                      type="button"
+                      onClick={() => setAlignmentMode('normalized')}
+                      aria-pressed={alignmentMode === 'normalized'}
+                    >
+                      归一化
+                    </button>
+                  </div>
                 </div>
               )}
             </div>
@@ -844,6 +909,39 @@ export const App = ({ initialCurves = [] }: AppProps) => {
         onCancel={handlePickerCancel}
         onConfirm={handlePickerConfirm}
       />
+
+      {alignmentAlert ? (
+        <div
+          className="alert-overlay"
+          role="alertdialog"
+          aria-modal="true"
+          aria-labelledby="alignment-alert-title"
+        >
+          <div className="alert-card">
+            <div className="alert-icon" aria-hidden="true">
+              <Sparkles size={42} />
+            </div>
+            <h2 id="alignment-alert-title" className="alert-title">
+              已自动切换到归一化模式
+            </h2>
+            <p className="alert-body">
+              检测到 <strong>{alignmentAlert.level}%</strong> 窗口在不同数据源之间采样数差异约
+              <strong> {Math.round((alignmentAlert.ratio - 1) * 100)}%</strong>
+              （{alignmentAlert.minCount} vs {alignmentAlert.maxCount}）。
+              <br />
+              「采样序号」模式会丢弃大量数据，已自动切换到「归一化」对齐方式。
+            </p>
+            <button
+              type="button"
+              className="button primary alert-action"
+              onClick={() => setAlignmentAlert(null)}
+              autoFocus
+            >
+              知道了
+            </button>
+          </div>
+        </div>
+      ) : null}
 
       {message ? (
         <div className="toast" role="status">
