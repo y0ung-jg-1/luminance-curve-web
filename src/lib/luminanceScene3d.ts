@@ -1,7 +1,4 @@
-import type { CurveSeries, LuminanceScene3DData, PostProcessResult, WindowSummary } from '../types';
-import { windowSequence } from './windowSequence';
-
-const makeSummaryKey = (curveId: string, level: number) => `${curveId}::${level}`;
+import type { CurveSeries, LuminanceScene3DData, PostProcessResult } from '../types';
 
 const niceAxisMax = (value: number): number => {
   if (!Number.isFinite(value) || value <= 0) return 1;
@@ -18,53 +15,54 @@ export const buildLuminanceScene3DData = (
   processedResult: PostProcessResult,
 ): LuminanceScene3DData => {
   const visibleIds = new Set(visibleCurves.map((curve) => curve.id));
-  const summariesByCurveAndLevel = new Map<string, WindowSummary>();
+  const points = processedResult.cleanedPoints
+    .filter((point) => visibleIds.has(point.curveId))
+    .sort((a, b) => a.alignedSeconds - b.alignedSeconds || a.curveName.localeCompare(b.curveName));
 
-  for (const summary of processedResult.summaries) {
-    if (visibleIds.has(summary.curveId)) {
-      summariesByCurveAndLevel.set(makeSummaryKey(summary.curveId, summary.windowLevel), summary);
-    }
-  }
+  const pointCurveIds = new Set(points.map((point) => point.curveId));
+  const curves = visibleCurves.filter((curve) => pointCurveIds.has(curve.id));
+  const curveIndexById = new Map(curves.map((curve, index) => [curve.id, index]));
+  const curveColorById = new Map(curves.map((curve) => [curve.id, curve.color]));
+  const pointIndexByCurveId = new Map<string, number>();
 
-  const curves = visibleCurves
-    .filter((curve) => windowSequence.some((level) => summariesByCurveAndLevel.has(makeSummaryKey(curve.id, level))))
-    .map((curve) => ({
+  const bars = points.map((point) => {
+    const xIndex = pointIndexByCurveId.get(point.curveId) ?? 0;
+    pointIndexByCurveId.set(point.curveId, xIndex + 1);
+
+    return {
+      curveId: point.curveId,
+      curveName: point.curveName,
+      curveColor: curveColorById.get(point.curveId) ?? '#007aff',
+      windowLevel: point.windowLevel,
+      rowNumber: point.rowNumber,
+      alignedSeconds: point.alignedSeconds,
+      windowSeconds: point.windowSeconds,
+      luminanceNits: point.luminanceNits,
+      xIndex,
+      zIndex: curveIndexById.get(point.curveId) ?? 0,
+    };
+  });
+
+  const maxLuminance = bars.length > 0 ? Math.max(...bars.map((bar) => bar.luminanceNits)) : 0;
+  const maxAlignedSeconds = bars.length > 0 ? Math.max(...bars.map((bar) => bar.alignedSeconds)) : 0;
+  const windows = processedResult.windows
+    .filter((window) => points.some((point) => point.windowLevel === window.windowLevel))
+    .map((window) => ({
+      windowLevel: window.windowLevel,
+      alignedStartSeconds: window.alignedStartSeconds,
+      alignedEndSeconds: window.alignedEndSeconds,
+    }));
+
+  return {
+    curves: curves.map((curve) => ({
       id: curve.id,
       name: curve.name,
       color: curve.color,
-    }));
-
-  const bars = curves.flatMap((curve, zIndex) =>
-    windowSequence.flatMap((level, xIndex) => {
-      const summary = summariesByCurveAndLevel.get(makeSummaryKey(curve.id, level));
-      if (!summary) return [];
-
-      return [
-        {
-          curveId: curve.id,
-          curveName: curve.name,
-          curveColor: curve.color,
-          levelPercent: level,
-          xIndex,
-          zIndex,
-          meanLuminance: summary.meanLuminance,
-          medianLuminance: summary.medianLuminance,
-          minLuminance: summary.minLuminance,
-          maxLuminance: summary.maxLuminance,
-          samplesKept: summary.samplesKept,
-        },
-      ];
-    }),
-  );
-
-  const maxMeanLuminance = bars.length > 0 ? Math.max(...bars.map((bar) => bar.meanLuminance)) : 0;
-  const maxMeasuredLuminance = bars.length > 0 ? Math.max(...bars.map((bar) => bar.maxLuminance)) : 0;
-
-  return {
-    levels: [...windowSequence],
-    curves,
+    })),
+    windows,
     bars,
-    maxMeanLuminance,
-    axisMaxLuminance: niceAxisMax(Math.max(maxMeanLuminance, maxMeasuredLuminance)),
+    maxAlignedSeconds,
+    maxLuminance,
+    axisMaxLuminance: niceAxisMax(maxLuminance),
   };
 };

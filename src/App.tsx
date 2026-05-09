@@ -70,7 +70,7 @@ export const App = ({ initialCurves = [] }: AppProps) => {
 
   const visibleCurves = useMemo(() => curves.filter((curve) => curve.visible), [curves]);
   const processedResult = useMemo(() => postProcessCurves(visibleCurves), [visibleCurves]);
-  const has3DData = processedResult.summaries.length > 0;
+  const has3DData = processedResult.cleanedPoints.length > 0;
   const totalPoints = useMemo(
     () => curves.reduce((sum, curve) => sum + curve.stats.pointCount, 0),
     [curves],
@@ -329,7 +329,7 @@ export const App = ({ initialCurves = [] }: AppProps) => {
 
     if (nextMode === '3d') {
       if (!has3DData) {
-        setMessage('3D 模式需要至少一个后处理稳定窗口。');
+        setMessage('3D 模式需要至少一个后处理稳定采样点。');
         return;
       }
       setDisplayMode('3d');
@@ -550,7 +550,7 @@ export const App = ({ initialCurves = [] }: AppProps) => {
               <span>{visibleCurves.length} 条可见</span>
               {displayMode === '3d' ? (
                 <>
-                  <span>{formatCompact(processedResult.summaries.length)} 个窗口均值</span>
+                  <span>{formatCompact(processedResult.cleanedPoints.length)} 个时间采样柱</span>
                   <span>峰值 {formatNumber(maxLuminance, 0)} nits</span>
                 </>
               ) : processingMode === 'processed' ? (

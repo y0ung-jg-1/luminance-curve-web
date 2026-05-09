@@ -118,25 +118,31 @@ export interface LuminanceBar3DDatum {
   curveId: string;
   curveName: string;
   curveColor: string;
-  levelPercent: number;
+  windowLevel: number;
+  rowNumber: number;
+  alignedSeconds: number;
+  windowSeconds: number;
+  luminanceNits: number;
   xIndex: number;
   zIndex: number;
-  meanLuminance: number;
-  medianLuminance: number;
-  minLuminance: number;
-  maxLuminance: number;
-  samplesKept: number;
+}
+
+export interface LuminanceScene3DWindowBand {
+  windowLevel: number;
+  alignedStartSeconds: number;
+  alignedEndSeconds: number;
 }
 
 export interface LuminanceScene3DData {
-  levels: number[];
   curves: Array<{
     id: string;
     name: string;
     color: string;
   }>;
+  windows: LuminanceScene3DWindowBand[];
   bars: LuminanceBar3DDatum[];
-  maxMeanLuminance: number;
+  maxAlignedSeconds: number;
+  maxLuminance: number;
   axisMaxLuminance: number;
 }
 

@@ -36,11 +36,11 @@ interface TooltipState {
   datum: LuminanceBar3DDatum;
 }
 
-const barWidth = 0.46;
 const barDepth = 0.52;
-const xSpacing = 1.08;
 const zSpacing = 0.98;
 const sceneHeight = 4.8;
+const minTimeBarWidth = 0.018;
+const maxTimeBarWidth = 0.18;
 
 const easeOutCubic = (value: number) => 1 - (1 - value) ** 3;
 const easeInOutCubic = (value: number) => {
@@ -54,6 +54,20 @@ const mixVector = (start: THREE.Vector3, end: THREE.Vector3, progress: number) =
 
 const truncateLabel = (value: string, maxLength: number) =>
   value.length > maxLength ? `${value.slice(0, maxLength - 1)}...` : value;
+
+const getTimeBarWidth = (bars: LuminanceBar3DDatum[], xSpan: number, maxSeconds: number) => {
+  const uniqueTimes = Array.from(new Set(bars.map((bar) => Number(bar.alignedSeconds.toFixed(4))))).sort((a, b) => a - b);
+  if (uniqueTimes.length < 2 || maxSeconds <= 0) {
+    return Math.max(minTimeBarWidth, Math.min(maxTimeBarWidth, xSpan * 0.08));
+  }
+
+  const minStepSeconds = uniqueTimes
+    .slice(1)
+    .reduce((minimum, value, index) => Math.min(minimum, value - uniqueTimes[index]), Number.POSITIVE_INFINITY);
+  const worldStep = (minStepSeconds / maxSeconds) * xSpan;
+
+  return Math.max(minTimeBarWidth, Math.min(maxTimeBarWidth, worldStep * 0.68));
+};
 
 const themeColors = (theme: 'light' | 'dark') => ({
   text: theme === 'dark' ? '#f5f5f7' : '#1d1d1f',
@@ -178,7 +192,7 @@ export const LuminanceScene3D = forwardRef<LuminanceScene3DHandle, LuminanceScen
       renderer.setClearColor(0x000000, 0);
       renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
       renderer.shadowMap.enabled = true;
-      renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+      renderer.shadowMap.type = THREE.PCFShadowMap;
       renderer.domElement.className = 'scene3d-canvas';
       container.appendChild(renderer.domElement);
       rendererRef.current = renderer;
@@ -193,7 +207,8 @@ export const LuminanceScene3D = forwardRef<LuminanceScene3DHandle, LuminanceScen
 
       const xOrigin = 0;
       const zOrigin = 0;
-      const xLast = xOrigin + (sceneData.levels.length - 1) * xSpacing;
+      const timeSpan = Math.max(sceneData.maxAlignedSeconds, 0.001);
+      const xLast = Math.max(5.8, Math.min(16, sceneData.windows.length * 1.12 + 1.8));
       const zLast = zOrigin + Math.max(sceneData.curves.length - 1, 0) * zSpacing;
       const xCenter = xLast / 2;
       const zCenter = zLast / 2;
@@ -202,7 +217,8 @@ export const LuminanceScene3D = forwardRef<LuminanceScene3DHandle, LuminanceScen
       const orbitRadius = Math.max(sceneWidth, sceneDepth, 6);
       const axisX = xLast + 0.28;
       const axisZ = zOrigin - 0.66;
-      const xForIndex = (index: number) => xLast - index * xSpacing;
+      const xForSeconds = (seconds: number) => xLast - (Math.max(0, Math.min(timeSpan, seconds)) / timeSpan) * xLast;
+      const timeBarWidth = getTimeBarWidth(sceneData.bars, xLast, timeSpan);
       const target = new THREE.Vector3(xCenter * 0.98, sceneHeight * 0.46, Math.max(zCenter * 0.72, 0.35));
       const frame1Target = new THREE.Vector3(xCenter * 0.96, sceneHeight * 0.43, zOrigin + 0.04);
       const frame1Position = new THREE.Vector3(xCenter * 0.96, sceneHeight * 0.44, axisZ - orbitRadius * 1.08);
@@ -244,25 +260,40 @@ export const LuminanceScene3D = forwardRef<LuminanceScene3DHandle, LuminanceScen
       const hemisphere = new THREE.HemisphereLight(0xdfefff, 0x3c2d21, theme === 'dark' ? 1.1 : 0.95);
       scene.add(hemisphere);
 
+      const viewDirection = target.clone().sub(finalPosition).normalize();
+      const screenRight = viewDirection.clone().cross(new THREE.Vector3(0, 1, 0)).normalize();
+      const screenUp = screenRight.clone().cross(viewDirection).normalize();
+      const daylightPosition = target
+        .clone()
+        .add(screenRight.clone().multiplyScalar(-sceneWidth * 0.95))
+        .add(screenUp.clone().multiplyScalar(sceneHeight * 2.1));
+      const daylightTarget = new THREE.Object3D();
+      daylightTarget.position.set(xCenter, 0, zCenter);
+      scene.add(daylightTarget);
+
       const directionalLight = new THREE.DirectionalLight(0xffffff, theme === 'dark' ? 1.55 : 1.35);
-      directionalLight.position.set(-4.5, 8, 5.5);
+      directionalLight.position.copy(daylightPosition);
+      directionalLight.target = daylightTarget;
       directionalLight.castShadow = true;
       directionalLight.shadow.mapSize.set(2048, 2048);
-      directionalLight.shadow.camera.near = 0.5;
-      directionalLight.shadow.camera.far = 30;
-      directionalLight.shadow.camera.left = -9;
-      directionalLight.shadow.camera.right = 9;
-      directionalLight.shadow.camera.top = 9;
-      directionalLight.shadow.camera.bottom = -9;
+      directionalLight.shadow.camera.near = 0.1;
+      directionalLight.shadow.camera.far = Math.max(48, orbitRadius * 4.2);
+      directionalLight.shadow.camera.left = -sceneWidth * 1.6;
+      directionalLight.shadow.camera.right = sceneWidth * 1.6;
+      directionalLight.shadow.camera.top = Math.max(sceneHeight * 2.4, sceneDepth * 1.8);
+      directionalLight.shadow.camera.bottom = -Math.max(sceneHeight * 1.4, sceneDepth * 1.8);
+      directionalLight.shadow.bias = -0.0002;
+      directionalLight.shadow.normalBias = 0.018;
+      directionalLight.shadow.camera.updateProjectionMatrix();
       scene.add(directionalLight);
 
       const warmLight = new THREE.PointLight(colors.warmLight, theme === 'dark' ? 1.0 : 0.75, 18);
-      warmLight.position.set(axisX + sceneWidth * 0.22, sceneHeight * 1.45, axisZ - sceneDepth * 0.24);
+      warmLight.position.copy(daylightPosition).add(new THREE.Vector3(0, sceneHeight * 0.22, 0));
       scene.add(warmLight);
 
       const groundTargetOpacity = theme === 'dark' ? 0.72 : 0.86;
       const ground = new THREE.Mesh(
-        new THREE.PlaneGeometry(sceneWidth + 1.2, sceneDepth + 1.8),
+        new THREE.PlaneGeometry(sceneWidth + 3.6, sceneDepth + 3.8),
         new THREE.MeshStandardMaterial({
           color: colors.ground,
           metalness: 0.02,
@@ -272,7 +303,7 @@ export const LuminanceScene3D = forwardRef<LuminanceScene3DHandle, LuminanceScen
         }),
       );
       ground.rotation.x = -Math.PI / 2;
-      ground.position.set(xCenter, -0.02, zCenter);
+      ground.position.set(xCenter, -0.02, zCenter - 0.18);
       ground.receiveShadow = true;
       scene.add(ground);
 
@@ -287,9 +318,9 @@ export const LuminanceScene3D = forwardRef<LuminanceScene3DHandle, LuminanceScen
       const yScale = sceneHeight / sceneData.axisMaxLuminance;
 
       for (const datum of sceneData.bars) {
-        const x = xForIndex(datum.xIndex);
+        const x = xForSeconds(datum.alignedSeconds);
         const z = zOrigin + datum.zIndex * zSpacing;
-        const targetHeight = Math.max(datum.meanLuminance * yScale, 0.035);
+        const targetHeight = Math.max(datum.luminanceNits * yScale, 0.035);
         const startsVisible = reducedMotion || datum.zIndex === 0;
         const targetOpacity = theme === 'dark' ? 0.88 : 0.94;
         const introOpacity = datum.zIndex === 0 && !reducedMotion ? (theme === 'dark' ? 0.16 : 0.25) : targetOpacity;
@@ -300,20 +331,20 @@ export const LuminanceScene3D = forwardRef<LuminanceScene3DHandle, LuminanceScen
           roughness: 0.38,
           metalness: 0.06,
           transparent: true,
-          opacity: startsVisible && reducedMotion ? targetOpacity : 0,
+          opacity: startsVisible ? introOpacity : 0,
         });
-        const mesh = new THREE.Mesh(new THREE.BoxGeometry(barWidth, 1, barDepth), material);
+        const mesh = new THREE.Mesh(new THREE.BoxGeometry(timeBarWidth, 1, barDepth), material);
         const initialHeight = startsVisible ? targetHeight : 0.001;
         mesh.position.set(x, initialHeight / 2, z);
         mesh.scale.y = initialHeight;
-        mesh.visible = reducedMotion || datum.zIndex !== 0;
+        mesh.visible = startsVisible || datum.zIndex !== 0;
         mesh.castShadow = true;
         mesh.receiveShadow = true;
         mesh.userData.datum = datum;
         scene.add(mesh);
 
         const cap = new THREE.Mesh(
-          new THREE.BoxGeometry(barWidth * 1.03, 0.018, barDepth * 1.03),
+          new THREE.BoxGeometry(timeBarWidth * 1.03, 0.018, barDepth * 1.03),
           new THREE.MeshBasicMaterial({
             color: new THREE.Color(datum.curveColor),
             transparent: true,
@@ -321,11 +352,11 @@ export const LuminanceScene3D = forwardRef<LuminanceScene3DHandle, LuminanceScen
           }),
         );
         cap.position.set(x, startsVisible ? targetHeight + 0.018 : 0.018, z);
-        cap.visible = reducedMotion && startsVisible;
+        cap.visible = startsVisible;
         scene.add(cap);
 
         const edge = new THREE.LineSegments(
-          new THREE.EdgesGeometry(new THREE.BoxGeometry(barWidth, 1, barDepth)),
+          new THREE.EdgesGeometry(new THREE.BoxGeometry(timeBarWidth, 1, barDepth)),
           new THREE.LineBasicMaterial({
             color: new THREE.Color(datum.curveColor),
             transparent: true,
@@ -335,14 +366,14 @@ export const LuminanceScene3D = forwardRef<LuminanceScene3DHandle, LuminanceScen
         mesh.add(edge);
 
         const facade =
-          datum.zIndex === 0 && !reducedMotion
+          datum.zIndex === 0 && !reducedMotion && sceneData.bars.length <= 600
             ? new THREE.Line(
                 new THREE.BufferGeometry().setFromPoints([
-                  new THREE.Vector3(x - barWidth / 2, 0.018, z),
-                  new THREE.Vector3(x - barWidth / 2, targetHeight, z),
-                  new THREE.Vector3(x + barWidth / 2, targetHeight, z),
-                  new THREE.Vector3(x + barWidth / 2, 0.018, z),
-                  new THREE.Vector3(x - barWidth / 2, 0.018, z),
+                  new THREE.Vector3(x - timeBarWidth / 2, 0.018, z),
+                  new THREE.Vector3(x - timeBarWidth / 2, targetHeight, z),
+                  new THREE.Vector3(x + timeBarWidth / 2, targetHeight, z),
+                  new THREE.Vector3(x + timeBarWidth / 2, 0.018, z),
+                  new THREE.Vector3(x - timeBarWidth / 2, 0.018, z),
                 ]),
                 new THREE.LineBasicMaterial({
                   color: new THREE.Color(datum.curveColor),
@@ -373,11 +404,32 @@ export const LuminanceScene3D = forwardRef<LuminanceScene3DHandle, LuminanceScen
       }
 
       const labelColor = colors.muted;
-      for (const level of sceneData.levels) {
-        const x = xForIndex(sceneData.levels.indexOf(level));
-        const label = makeTextSprite(`${level}%`, { color: labelColor, fontSize: 34, width: 128, height: 52 });
-        label.position.set(x, 0.13, axisZ - 0.18);
-        label.scale.set(0.54, 0.22, 1);
+
+      const boundaryMaterial = new THREE.LineBasicMaterial({
+        color: colors.axis,
+        transparent: true,
+        opacity: theme === 'dark' ? 0.24 : 0.18,
+      });
+      const boundarySeconds = Array.from(
+        new Set(sceneData.windows.flatMap((window) => [window.alignedStartSeconds, window.alignedEndSeconds])),
+      ).sort((a, b) => a - b);
+      for (const seconds of boundarySeconds) {
+        const x = xForSeconds(seconds);
+        const boundary = new THREE.Line(
+          new THREE.BufferGeometry().setFromPoints([
+            new THREE.Vector3(x, 0.036, axisZ + 0.16),
+            new THREE.Vector3(x, 0.036, zLast + 0.5),
+          ]),
+          boundaryMaterial.clone(),
+        );
+        scene.add(boundary);
+      }
+
+      for (const window of sceneData.windows) {
+        const x = xForSeconds((window.alignedStartSeconds + window.alignedEndSeconds) / 2);
+        const label = makeTextSprite(`${window.windowLevel}%`, { color: labelColor, fontSize: 27, width: 120, height: 48 });
+        label.position.set(x, 0.34, axisZ - 0.52);
+        label.scale.set(0.46, 0.18, 1);
         scene.add(label);
       }
 
@@ -519,20 +571,19 @@ export const LuminanceScene3D = forwardRef<LuminanceScene3DHandle, LuminanceScen
       let animationFrame = 0;
       let introComplete = reducedMotion;
       const startedAt = performance.now();
-      const introHoldMs = 560;
+      const introHoldMs = 240;
       const cameraPathMs = 1240;
       const frame3Ratio = 0.46;
-      const revealStartMs = introHoldMs + cameraPathMs + 80;
+      const revealStartMs = introHoldMs + cameraPathMs * 0.72;
       const rowDelayMs = 340;
-      const columnDelayMs = 10;
+      const timeSweepMs = 720;
       const barRiseMs = 620;
       const finalSettleMs = 520;
       const lastRowIndex = Math.max(...bars.map((bar) => bar.zIndex), 0);
-      const lastColumnIndex = Math.max(...bars.map((bar) => bar.xIndex), 0);
       const hasAnimatedRows = lastRowIndex > 0;
       const lastAnimatedRowOffset = Math.max(lastRowIndex - 1, 0);
       const introDurationMs = hasAnimatedRows
-        ? revealStartMs + lastAnimatedRowOffset * rowDelayMs + lastColumnIndex * columnDelayMs + barRiseMs + finalSettleMs
+        ? revealStartMs + lastAnimatedRowOffset * rowDelayMs + timeSweepMs + barRiseMs + finalSettleMs
         : cameraPathMs + finalSettleMs;
       if (reducedMotion) {
         for (const bar of bars) {
@@ -570,6 +621,9 @@ export const LuminanceScene3D = forwardRef<LuminanceScene3DHandle, LuminanceScen
           const motionElapsed = Math.max(0, elapsed - introHoldMs);
           const pathFrame = getCameraPathFrame(motionElapsed / cameraPathMs);
           const settleProgress = easeOutCubic(clamp01((elapsed - revealStartMs) / (introDurationMs - revealStartMs)));
+          const frontRowProgress = easeOutCubic(
+            clamp01((elapsed - introHoldMs - cameraPathMs * 0.58) / (revealStartMs - introHoldMs - cameraPathMs * 0.58)),
+          );
           const worldProgress = easeOutCubic(
             clamp01((elapsed - introHoldMs - cameraPathMs * 0.44) / (revealStartMs - introHoldMs - cameraPathMs * 0.44)),
           );
@@ -584,24 +638,22 @@ export const LuminanceScene3D = forwardRef<LuminanceScene3DHandle, LuminanceScen
 
           for (const bar of bars) {
             if (bar.zIndex === 0) {
-              const fillProgress = easeOutCubic(
-                clamp01((elapsed - introHoldMs - cameraPathMs * 0.58) / (revealStartMs - introHoldMs - cameraPathMs * 0.58)),
-              );
               bar.mesh.scale.y = bar.targetHeight;
               bar.mesh.position.y = bar.targetHeight / 2;
-              bar.mesh.visible = fillProgress > 0.02;
-              bar.mesh.material.opacity = lerp(0, bar.targetOpacity, fillProgress);
-              bar.edge.material.opacity = lerp(bar.introEdgeOpacity, bar.targetEdgeOpacity, fillProgress);
+              bar.mesh.visible = true;
+              bar.mesh.material.opacity = lerp(bar.introOpacity, bar.targetOpacity, frontRowProgress);
+              bar.edge.material.opacity = lerp(bar.introEdgeOpacity, bar.targetEdgeOpacity, frontRowProgress);
               if (bar.facade) {
-                bar.facade.material.opacity = lerp(bar.introEdgeOpacity, 0, fillProgress);
-                bar.facade.visible = fillProgress < 0.98;
+                bar.facade.material.opacity = lerp(bar.introEdgeOpacity, 0, frontRowProgress);
+                bar.facade.visible = frontRowProgress < 0.98;
               }
               bar.cap.position.y = bar.targetHeight + 0.018;
-              bar.cap.visible = fillProgress > 0.2;
+              bar.cap.visible = true;
               continue;
             }
 
-            const stagger = revealStartMs + (bar.zIndex - 1) * rowDelayMs + bar.xIndex * columnDelayMs;
+            const timeRatio = sceneData.maxAlignedSeconds > 0 ? clamp01(bar.datum.alignedSeconds / sceneData.maxAlignedSeconds) : 0;
+            const stagger = revealStartMs + (bar.zIndex - 1) * rowDelayMs + timeRatio * timeSweepMs;
             const progress = easeOutCubic(clamp01((elapsed - stagger) / barRiseMs));
             const height = Math.max(bar.targetHeight * progress, 0.001);
             bar.mesh.scale.y = height;
@@ -657,18 +709,17 @@ export const LuminanceScene3D = forwardRef<LuminanceScene3DHandle, LuminanceScen
         {sceneData.bars.length === 0 ? (
           <div className="scene3d-empty">
             <strong>没有 3D 数据</strong>
-            <span>后处理需要至少一个稳定窗口。</span>
+            <span>后处理需要至少一个稳定采样点。</span>
           </div>
         ) : null}
         {tooltip ? (
           <div className="scene3d-tooltip" style={{ left: tooltip.x, top: tooltip.y }}>
             <strong>{tooltip.datum.curveName}</strong>
-            <span>{formatNumber(tooltip.datum.levelPercent, 2)}% window</span>
-            <span>均值 {formatNumber(tooltip.datum.meanLuminance, 2)} nits</span>
-            <span>中位 {formatNumber(tooltip.datum.medianLuminance, 2)} nits</span>
-            <span>
-              范围 {formatNumber(tooltip.datum.minLuminance, 2)} - {formatNumber(tooltip.datum.maxLuminance, 2)} nits
-            </span>
+            <span>{formatNumber(tooltip.datum.windowLevel, 2)}% window</span>
+            <span>时间 {formatNumber(tooltip.datum.alignedSeconds, 3)}s</span>
+            <span>窗口内 {formatNumber(tooltip.datum.windowSeconds, 3)}s</span>
+            <span>亮度 {formatNumber(tooltip.datum.luminanceNits, 2)} nits</span>
+            <span>行 {tooltip.datum.rowNumber}</span>
           </div>
         ) : null}
       </div>
