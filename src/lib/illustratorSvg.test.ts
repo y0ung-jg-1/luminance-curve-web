@@ -35,7 +35,7 @@ const makeCurve = (id: string, name: string, levels: number[]): CurveSeries => {
 };
 
 describe('buildIllustratorLayeredSvgs', () => {
-  it('creates separate movable window layers with waveform paths', () => {
+  it('creates separate movable window layers without extra waveform strokes', () => {
     const curve = makeCurve('a', 'Display A', [1, 2]);
     const result = postProcessCurves([curve]);
     const files = buildIllustratorLayeredSvgs(result, [curve], { yMin: 0, yMax: 250 });
@@ -43,7 +43,9 @@ describe('buildIllustratorLayeredSvgs', () => {
     expect(files).toHaveLength(1);
     expect(files[0].svg).toContain('inkscape:label="1%"');
     expect(files[0].svg).toContain('inkscape:label="2%"');
-    expect(files[0].svg).toContain('data-name="1% waveform"');
+    expect(files[0].svg).toContain('data-name="1% bar"');
+    expect(files[0].svg).not.toContain('waveform');
+    expect(files[0].svg).not.toContain('-wave');
   });
 
   it('exports overlaid curves as separate SVG files', () => {

@@ -63,7 +63,7 @@ const buildBarPath = ({
   barWidth: number;
   baselineY: number;
   toY: (value: number) => number;
-}): { fillPath: string; topPath: string } => {
+}): string => {
   const span = Math.max(window.sampleCount - 1, 1);
   const topPoints = points.map((point) => ({
     x: barLeft + (Math.max(0, Math.min(span, point.windowIndex)) / span) * barWidth,
@@ -72,12 +72,6 @@ const buildBarPath = ({
 
   const first = topPoints[0];
   const last = topPoints[topPoints.length - 1];
-  const topCommands = [
-    `M ${formatPoint(barLeft)} ${formatPoint(first.y)}`,
-    ...topPoints.map((point) => `L ${formatPoint(point.x)} ${formatPoint(point.y)}`),
-    `L ${formatPoint(barLeft + barWidth)} ${formatPoint(last.y)}`,
-  ];
-
   const fillPath = [
     `M ${formatPoint(barLeft)} ${formatPoint(baselineY)}`,
     `L ${formatPoint(barLeft)} ${formatPoint(first.y)}`,
@@ -87,10 +81,7 @@ const buildBarPath = ({
     'Z',
   ].join(' ');
 
-  return {
-    fillPath,
-    topPath: topCommands.join(' '),
-  };
+  return fillPath;
 };
 
 export const buildIllustratorLayeredSvgs = (
@@ -130,7 +121,7 @@ export const buildIllustratorLayeredSvgs = (
       if (points.length === 0) return [];
 
       const barLeft = margin.left + index * (barWidth + gap);
-      const { fillPath, topPath } = buildBarPath({
+      const fillPath = buildBarPath({
         window,
         points,
         barLeft,
@@ -144,7 +135,6 @@ export const buildIllustratorLayeredSvgs = (
       return `
   <g id="${id}" data-name="${escapeXml(label)}" inkscape:groupmode="layer" inkscape:label="${escapeXml(label)}">
     <path id="${id}-bar" data-name="${escapeXml(label)} bar" d="${fillPath}" fill="#B3B3B3"/>
-    <path id="${id}-wave" data-name="${escapeXml(label)} waveform" d="${topPath}" fill="none" stroke="#8C8C8C" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/>
   </g>`;
     });
 
